@@ -1,4 +1,4 @@
-# go-yahoofinance
+# gohoo
 
 Cliente Go minimalista para los endpoints no oficiales de Yahoo Finance (`quoteSummary`, `fundamentals-timeseries` y `chart`). Equivalente, para Go, a lo que es [`yfinance`](https://github.com/ranaroussi/yfinance) para Python: sin API key, hablando directo con `query2.finance.yahoo.com` vía `net/http`.
 
@@ -7,7 +7,7 @@ Extraído de [`go-finz-analysis`](https://github.com/loc1263/go-finz-analysis), 
 ## Instalación
 
 ```bash
-go get github.com/loc1263/go-yahoofinance
+go get github.com/loc1263/gohoo
 ```
 
 ## Uso
@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"log"
 
-	yahoo "github.com/loc1263/go-yahoofinance"
+	yahoo "github.com/loc1263/gohoo"
 )
 
 func main() {
