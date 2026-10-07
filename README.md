@@ -4,6 +4,8 @@ Cliente Go minimalista para los endpoints no oficiales de Yahoo Finance (`quoteS
 
 Extraído de [`go-finz-analysis`](https://github.com/loc1263/go-finz-analysis), donde nació como paquete interno usado por varios binarios (indicadores de acciones, precios de acciones/ETFs/criptomonedas). Esta es la versión reutilizable, sin dependencias externas.
 
+Documentación: [API.md](API.md) (referencia de funciones/tipos) · [ENDPOINTS.md](ENDPOINTS.md) (qué datos trae cada endpoint de Yahoo).
+
 ## Instalación
 
 ```bash
@@ -60,3 +62,15 @@ Todos los números que devuelve Yahoo en `quoteSummary`/`fundamentals-timeseries
 - No requiere API key ni autenticación de usuario: solo cookies de sesión + un token "crumb" público, obtenidos automáticamente en `NewClient`.
 - `rango` e `intervalo` son los mismos valores que acepta Yahoo Finance en su UI/API: `1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max` y `1m, 2m, 5m, 15m, 30m, 60m/1h, 1d, 5d, 1wk, 1mo, 3mo` respectivamente. Yahoo limita cuánto histórico entrega para los intervalos intradía.
 - Sirve igual para acciones (`AAPL`), ETFs (`SPY`) y criptomonedas (`BTC-USD`) — todas comparten el mismo endpoint `chart` en Yahoo Finance.
+
+## Tests
+
+```bash
+go test ./...
+```
+
+Los tests no requieren red: simulan las respuestas de Yahoo con un `httptest.Server` local.
+
+## Licencia
+
+[MIT](LICENSE)
