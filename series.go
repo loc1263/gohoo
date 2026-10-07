@@ -2,6 +2,7 @@ package yahoo
 
 import (
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -118,6 +119,63 @@ func (c *Client) ChartSeries(ticker, rang, interval string) ([]OHLCV, map[string
 	}
 
 	return series, dividends, splits, nil
+}
+
+// Gap describe un hueco inusual entre dos barras consecutivas de una serie
+// OHLCV: la diferencia de tiempo entre ellas (Actual) es mayor que
+// `factor` veces el intervalo esperado de la serie (Esperado).
+type Gap struct {
+	From, To       time.Time
+	Esperado, Real time.Duration
+}
+
+// DetectGaps revisa que las barras de `series` (ya ordenada cronológicamente)
+// estén separadas por aproximadamente el intervalo esperado, inferido como
+// la mediana de los deltas de tiempo entre barras consecutivas (robusto
+// frente a fines de semana/feriados, que son la minoría de los deltas en
+// datos diarios), y devuelve los huecos que superan `factor` veces esa
+// mediana. Un `factor` de 5 es un punto de partida razonable para velas
+// diarias (tolera fines de semana largos y feriados consecutivos sin
+// generar falsos positivos); para velas intradía puede necesitarse un
+// factor menor.
+func DetectGaps(series []OHLCV, factor float64) []Gap {
+	n := len(series)
+	if n < 2 {
+		return nil
+	}
+	deltas := make([]time.Duration, n-1)
+	for i := 1; i < n; i++ {
+		deltas[i-1] = series[i].Time.Sub(series[i-1].Time)
+	}
+	median := medianDuration(deltas)
+	if median <= 0 {
+		return nil
+	}
+
+	var gaps []Gap
+	for i, d := range deltas {
+		if float64(d) > factor*float64(median) {
+			gaps = append(gaps, Gap{
+				From: series[i].Time, To: series[i+1].Time,
+				Esperado: median, Real: d,
+			})
+		}
+	}
+	return gaps
+}
+
+func medianDuration(deltas []time.Duration) time.Duration {
+	if len(deltas) == 0 {
+		return 0
+	}
+	sorted := make([]time.Duration, len(deltas))
+	copy(sorted, deltas)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 0 {
+		return (sorted[mid-1] + sorted[mid]) / 2
+	}
+	return sorted[mid]
 }
 
 func toInterfaceSlice(v interface{}) []interface{} {

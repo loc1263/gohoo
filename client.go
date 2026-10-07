@@ -7,6 +7,7 @@ package yahoo
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,34 @@ import (
 )
 
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+
+// maxAttempts es el número total de intentos (1 inicial + reintentos) que
+// hacen QuoteSummary/FundamentalsTimeseries/Chart ante fallas transitorias.
+const maxAttempts = 4
+
+// retryBaseDelay es la base del backoff exponencial entre reintentos
+// (200ms, 400ms, 800ms, ...).
+const retryBaseDelay = 200 * time.Millisecond
+
+// httpStatusError es el error que devuelve doGet ante una respuesta HTTP
+// distinta de 200, con el código de estado accesible vía errors.As para que
+// doGetAuthed decida si reintentar.
+type httpStatusError struct {
+	StatusCode int
+	URL        string
+	Body       string
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("HTTP %d en %s: %s", e.StatusCode, e.URL, e.Body)
+}
+
+// isRetryableStatus indica qué códigos HTTP vale la pena reintentar: 429
+// (rate limit) y 5xx (errores transitorios del servidor). 401 se maneja
+// aparte porque requiere renovar el crumb, no solo esperar.
+func isRetryableStatus(code int) bool {
+	return code == http.StatusTooManyRequests || code >= 500
+}
 
 // Client encapsula la sesión HTTP (cookies + crumb) usada para hablar con los
 // endpoints no oficiales de Yahoo Finance.
@@ -55,9 +84,50 @@ func (c *Client) doGet(rawURL string) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode != 200 {
-		return body, fmt.Errorf("HTTP %d en %s: %s", resp.StatusCode, rawURL, string(body[:min(len(body), 300)]))
+		return body, &httpStatusError{
+			StatusCode: resp.StatusCode,
+			URL:        rawURL,
+			Body:       string(body[:min(len(body), 300)]),
+		}
 	}
 	return body, nil
+}
+
+// doGetAuthed llama a buildURL() y hace el GET resultante, reintentando ante
+// fallas transitorias: errores de red (timeouts, conexión rechazada, etc.)
+// y HTTP 429/5xx se reintentan con backoff exponencial; un HTTP 401 dispara
+// un `bootstrap` (cookies+crumb nuevos) y se reintenta con la URL
+// reconstruida a partir del crumb ya renovado. buildURL recibe una función
+// en lugar de una URL fija porque la URL de la mayoría de los endpoints
+// incluye el crumb vigente, que puede cambiar entre intentos.
+func (c *Client) doGetAuthed(buildURL func() string) ([]byte, error) {
+	var lastErr error
+	for attempt := range maxAttempts {
+		if attempt > 0 {
+			time.Sleep(retryBaseDelay * time.Duration(1<<(attempt-1)))
+		}
+		body, err := c.doGet(buildURL())
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+
+		var statusErr *httpStatusError
+		if errors.As(err, &statusErr) {
+			if statusErr.StatusCode == http.StatusUnauthorized {
+				if bootErr := c.bootstrap(); bootErr != nil {
+					return nil, fmt.Errorf("re-autenticación tras HTTP 401 falló: %w", bootErr)
+				}
+				continue
+			}
+			if !isRetryableStatus(statusErr.StatusCode) {
+				return nil, err
+			}
+			continue
+		}
+		// Error de red (timeout, conexión reiniciada, DNS, etc.): reintentable.
+	}
+	return nil, fmt.Errorf("agotados %d intentos: %w", maxAttempts, lastErr)
 }
 
 // bootstrap obtiene cookies de consentimiento y el "crumb" requerido por las
@@ -83,9 +153,10 @@ func (c *Client) bootstrap() error {
 // QuoteSummary llama a v10/finance/quoteSummary con los módulos solicitados y
 // devuelve el primer resultado como un árbol genérico de interface{}.
 func (c *Client) QuoteSummary(ticker string, modules []string) (map[string]interface{}, error) {
-	u := fmt.Sprintf("https://query2.finance.yahoo.com/v10/finance/quoteSummary/%s?modules=%s&crumb=%s",
-		url.PathEscape(ticker), url.QueryEscape(strings.Join(modules, ",")), url.QueryEscape(c.crumb))
-	body, err := c.doGet(u)
+	body, err := c.doGetAuthed(func() string {
+		return fmt.Sprintf("https://query2.finance.yahoo.com/v10/finance/quoteSummary/%s?modules=%s&crumb=%s",
+			url.PathEscape(ticker), url.QueryEscape(strings.Join(modules, ",")), url.QueryEscape(c.crumb))
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -118,9 +189,10 @@ func (c *Client) QuoteSummary(ticker string, modules []string) (map[string]inter
 func (c *Client) FundamentalsTimeseries(ticker string, types []string) (map[string]interface{}, error) {
 	period2 := time.Now().Unix()
 	period1 := time.Now().AddDate(-6, 0, 0).Unix()
-	u := fmt.Sprintf("https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/%s?symbol=%s&type=%s&period1=%d&period2=%d",
-		url.PathEscape(ticker), url.QueryEscape(ticker), url.QueryEscape(strings.Join(types, ",")), period1, period2)
-	body, err := c.doGet(u)
+	body, err := c.doGetAuthed(func() string {
+		return fmt.Sprintf("https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/%s?symbol=%s&type=%s&period1=%d&period2=%d",
+			url.PathEscape(ticker), url.QueryEscape(ticker), url.QueryEscape(strings.Join(types, ",")), period1, period2)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -134,9 +206,10 @@ func (c *Client) FundamentalsTimeseries(ticker string, types []string) (map[stri
 // Chart llama al endpoint v8/finance/chart con el rango e intervalos pedidos,
 // incluyendo dividendos y splits.
 func (c *Client) Chart(ticker, rang, interval string) (map[string]interface{}, error) {
-	u := fmt.Sprintf("https://query2.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s&events=div,splits",
-		url.PathEscape(ticker), url.QueryEscape(rang), url.QueryEscape(interval))
-	body, err := c.doGet(u)
+	body, err := c.doGetAuthed(func() string {
+		return fmt.Sprintf("https://query2.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s&events=div,splits",
+			url.PathEscape(ticker), url.QueryEscape(rang), url.QueryEscape(interval))
+	})
 	if err != nil {
 		return nil, err
 	}
