@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # apidiff necesita los tags anteriores
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -19,3 +21,14 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test -race ./...
+      - name: API compatibility
+        env:
+          APIDIFF: golang.org/x/exp/cmd/apidiff@v0.0.0-20261007192929-f45ad48fbe92
+        run: |
+          prev=$(git describe --tags --abbrev=0 --exclude="$(git tag --points-at HEAD | head -n1)" 2>/dev/null || git describe --tags --abbrev=0)
+          echo "Comparando la API contra $prev"
+          git worktree add -q "$RUNNER_TEMP/prev" "$prev"
+          (cd "$RUNNER_TEMP/prev" && go run "$APIDIFF" -m -w "$RUNNER_TEMP/prev.api" github.com/loc1263/gohoo)
+          go run "$APIDIFF" -m -w "$RUNNER_TEMP/new.api" github.com/loc1263/gohoo
+          out=$(go run "$APIDIFF" -m -incompatible "$RUNNER_TEMP/prev.api" "$RUNNER_TEMP/new.api")
+          if [ -n "$out" ]; then echo "$out"; exit 1; fi

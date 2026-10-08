@@ -3,3 +3,6 @@
 .env
 .idea/
 .vscode/
+
+# Documentos internos de diseño (no se publican)
+DISENO_EXTENSIONES.md
