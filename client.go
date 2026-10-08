@@ -21,25 +21,13 @@ import (
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 
 // maxAttempts es el número total de intentos (1 inicial + reintentos) que
-// hacen QuoteSummary/FundamentalsTimeseries/Chart ante fallas transitorias.
+// hacen QuoteSummary/FundamentalsTimeseries/Chart ante fallas transitorias
+// con la política por defecto.
 const maxAttempts = 4
 
 // retryBaseDelay es la base del backoff exponencial entre reintentos
-// (200ms, 400ms, 800ms, ...).
+// (200ms, 400ms, 800ms, ...) con la política por defecto.
 const retryBaseDelay = 200 * time.Millisecond
-
-// httpStatusError es el error que devuelve doGet ante una respuesta HTTP
-// distinta de 200, con el código de estado accesible vía errors.As para que
-// doGetAuthed decida si reintentar.
-type httpStatusError struct {
-	StatusCode int
-	URL        string
-	Body       string
-}
-
-func (e *httpStatusError) Error() string {
-	return fmt.Sprintf("HTTP %d en %s: %s", e.StatusCode, e.URL, e.Body)
-}
 
 // isRetryableStatus indica qué códigos HTTP vale la pena reintentar: 429
 // (rate limit) y 5xx (errores transitorios del servidor). 401 se maneja
@@ -58,6 +46,7 @@ type Client struct {
 	crumb string
 
 	bootMu sync.Mutex // serializa el bootstrap perezoso (WithLazyBootstrap)
+	rnd    jitterRand
 }
 
 func (c *Client) getCrumb() string {
@@ -93,13 +82,14 @@ func (c *Client) doGet(ctx context.Context, rawURL string) ([]byte, error) {
 			StatusCode: resp.StatusCode,
 			URL:        rawURL,
 			Body:       string(body[:min(len(body), 300)]),
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
 		}
 	}
 	return body, nil
 }
 
 // doGetAuthed llama a buildURL() y hace el GET resultante, reintentando ante
-// fallas transitorias: errores de red
+// fallas transitorias según la RetryPolicy del cliente: errores de red
 // (timeouts, conexión rechazada, etc.) y HTTP 429/5xx se reintentan con
 // backoff exponencial; un HTTP 401 dispara un `bootstrap` (cookies+crumb
 // nuevos) y se reintenta con la URL reconstruida a partir del crumb ya
@@ -108,10 +98,16 @@ func (c *Client) doGet(ctx context.Context, rawURL string) ([]byte, error) {
 // cambiar entre intentos. Si ctx termina, se devuelve de inmediato sin
 // consumir los intentos restantes.
 func (c *Client) doGetAuthed(ctx context.Context, buildURL func() string) ([]byte, error) {
+	policy := c.retryPolicy()
 	var lastErr error
-	for attempt := range maxAttempts {
+	var lastStatus *httpStatusError
+	for attempt := range policy.MaxAttempts {
 		if attempt > 0 {
-			if err := c.sleep(ctx, retryBaseDelay*time.Duration(1<<(attempt-1))); err != nil {
+			d := policy.delay(attempt, lastStatus, c.rnd.Float64)
+			if policy.OnRetry != nil {
+				policy.OnRetry(attempt, lastErr, d)
+			}
+			if err := c.sleep(ctx, d); err != nil {
 				return nil, fmt.Errorf("cancelado tras %d intentos: %w (último error: %w)", attempt, err, lastErr)
 			}
 		}
@@ -123,14 +119,19 @@ func (c *Client) doGetAuthed(ctx context.Context, buildURL func() string) ([]byt
 			return nil, err
 		}
 		lastErr = err
+		lastStatus = nil
 
 		var statusErr *httpStatusError
 		if errors.As(err, &statusErr) {
+			lastStatus = statusErr
 			if statusErr.StatusCode == http.StatusUnauthorized {
 				if bootErr := c.bootstrap(ctx); bootErr != nil {
 					return nil, fmt.Errorf("re-autenticación tras HTTP 401 falló: %w", bootErr)
 				}
 				continue
+			}
+			if statusErr.StatusCode == http.StatusTooManyRequests && !policy.RetryRateLimit {
+				return nil, err
 			}
 			if !isRetryableStatus(statusErr.StatusCode) {
 				return nil, err
@@ -139,7 +140,7 @@ func (c *Client) doGetAuthed(ctx context.Context, buildURL func() string) ([]byt
 		}
 		// Error de red (timeout, conexión reiniciada, DNS, etc.): reintentable.
 	}
-	return nil, fmt.Errorf("agotados %d intentos: %w", maxAttempts, lastErr)
+	return nil, fmt.Errorf("agotados %d intentos: %w", policy.MaxAttempts, lastErr)
 }
 
 // bootstrap obtiene cookies de consentimiento y el "crumb" requerido por las

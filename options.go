@@ -28,6 +28,7 @@ type config struct {
 	baseURL    string
 	consentURL string
 	userAgent  string
+	retry      *RetryPolicy
 	lazy       bool
 
 	// sleep espera d o hasta que ctx termine; se reemplaza en tests para
@@ -56,6 +57,12 @@ func WithBaseURL(u string) Option {
 // WithUserAgent cambia el header User-Agent de todas las requests.
 func WithUserAgent(ua string) Option {
 	return func(c *config) { c.userAgent = ua }
+}
+
+// WithRetryPolicy reemplaza la política de reintentos por defecto (ver
+// RetryPolicy y DefaultRetryPolicy).
+func WithRetryPolicy(p RetryPolicy) Option {
+	return func(c *config) { c.retry = &p }
 }
 
 // WithLazyBootstrap hace que NewClientWithOptions no haga ninguna request:
