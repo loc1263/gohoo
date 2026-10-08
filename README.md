@@ -1,18 +1,22 @@
 # gohoo
 
-Cliente Go minimalista para los endpoints no oficiales de Yahoo Finance (`quoteSummary`, `fundamentals-timeseries` y `chart`). Equivalente, para Go, a lo que es [`yfinance`](https://github.com/ranaroussi/yfinance) para Python: sin API key, hablando directo con `query2.finance.yahoo.com` vía `net/http`.
+English | [Español](README.es.md)
 
-Extraído de [`go-finz-analysis`](https://github.com/loc1263/go-finz-analysis), donde nació como paquete interno usado por varios binarios (indicadores de acciones, precios de acciones/ETFs/criptomonedas). Esta es la versión reutilizable, sin dependencias externas.
+A minimalist Go client for Yahoo Finance's unofficial endpoints (`quoteSummary`, `fundamentals-timeseries` and `chart`). Think of it as what [`yfinance`](https://github.com/ranaroussi/yfinance) is for Python, but for Go: no API key, talking directly to `query2.finance.yahoo.com` through `net/http`.
 
-Documentación: [API.md](API.md) (referencia de funciones/tipos) · [ENDPOINTS.md](ENDPOINTS.md) (qué datos trae cada endpoint de Yahoo).
+Extracted from [`go-finz-analysis`](https://github.com/loc1263/go-finz-analysis), where it started as an internal package shared by several binaries (stock indicators, stock/ETF/crypto prices). This is the reusable version, with no external dependencies.
 
-## Instalación
+Documentation (currently in Spanish): [API.md](API.md) (function/type reference) · [ENDPOINTS.md](ENDPOINTS.md) (what data each Yahoo endpoint returns).
+
+> **Disclaimer:** gohoo is not affiliated with or endorsed by Yahoo. It uses **unofficial, undocumented** endpoints that may change or stop working without notice, and their use is subject to Yahoo's terms of service. Intended for personal and educational projects; the data is not financial advice and should be verified before being used to trade. Provided "as is" (see [LICENSE](LICENSE)).
+
+## Installation
 
 ```bash
 go get github.com/loc1263/gohoo
 ```
 
-## Uso
+## Usage
 
 ```go
 package main
@@ -21,47 +25,51 @@ import (
 	"fmt"
 	"log"
 
-	yahoo "github.com/loc1263/gohoo"
+	"github.com/loc1263/gohoo"
 )
 
 func main() {
-	client, err := yahoo.NewClient()
+	client, err := gohoo.NewClient()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Indicadores y módulos "en crudo" de quoteSummary.
+	// Raw quoteSummary modules and indicators.
 	data, err := client.QuoteSummary("AAPL", []string{"price", "summaryDetail"})
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Precio actual:", yahoo.Field(data["price"].(map[string]interface{}), "regularMarketPrice"))
+	fmt.Println("Current price:", gohoo.Field(data["price"].(map[string]interface{}), "regularMarketPrice"))
 
-	// Histórico OHLCV ya parseado (acciones, ETFs o criptomonedas).
+	// Parsed OHLCV history (stocks, ETFs or cryptocurrencies).
 	series, dividends, splits, err := client.ChartSeries("AAPL", "1y", "1d")
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("%d velas, %d fechas con dividendo, %d con split\n", len(series), len(dividends), len(splits))
+	fmt.Printf("%d candles, %d dividend dates, %d split dates\n", len(series), len(dividends), len(splits))
 }
 ```
 
 ## API
 
-- `NewClient() (*Client, error)` — crea una sesión autenticada (cookie + crumb de Yahoo).
-- `(*Client) QuoteSummary(ticker string, modules []string) (map[string]interface{}, error)` — módulos de `quoteSummary` (precio, estadísticas, estimaciones de analistas, etc.), fusionados en un solo mapa.
-- `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]interface{}, error)` — estados financieros anuales/trimestrales vía `fundamentals-timeseries`.
-- `(*Client) Chart(ticker, rango, intervalo string) (map[string]interface{}, error)` — respuesta cruda del endpoint `chart` (OHLCV + dividendos/splits).
-- `(*Client) ChartSeries(ticker, rango, intervalo string) ([]OHLCV, dividendos, splits map[string]float64, error)` — `Chart` ya parseado a una serie ordenada, más dividendos/splits indexados por fecha (`"YYYY-MM-DD"`).
-- Helpers de parseo de JSON de Yahoo: `RawValue`, `GetPath`, `Field`, `AsFloat`, `AsInt64`, `AsString`, `EpochToDate`, `EpochToDateTimeNY`, `EpochToMidnight`, `DateStringToMidnight`, `ParseDateOnly`.
+- `NewClient() (*Client, error)` — creates an authenticated session (Yahoo cookie + crumb).
+- `(*Client) QuoteSummary(ticker string, modules []string) (map[string]interface{}, error)` — `quoteSummary` modules (price, statistics, analyst estimates, etc.), merged into a single map.
+- `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]interface{}, error)` — annual/quarterly financial statements via `fundamentals-timeseries`.
+- `(*Client) Chart(ticker, rang, interval string) (map[string]interface{}, error)` — raw response from the `chart` endpoint (OHLCV + dividends/splits).
+- `(*Client) ChartSeries(ticker, rang, interval string) ([]OHLCV, dividends, splits map[string]float64, error)` — `Chart` already parsed into a sorted series, plus dividends/splits keyed by date (`"YYYY-MM-DD"`).
+- `ComputeIndicators(series []OHLCV) []IndicatorSet` — SMA, EMA, RSI, MACD, Bollinger Bands, ATR, Stochastic, Williams %R, ADX, VWAP, OBV and derived signals.
+- `DetectGaps(series []OHLCV, factor float64) []Gap` — detects unusual gaps in a series.
+- Yahoo JSON parsing helpers: `RawValue`, `GetPath`, `Field`, `AsFloat`, `AsInt64`, `AsString`, `EpochToDate`, `EpochToDateTimeNY`, `EpochToMidnight`, `DateStringToMidnight`, `ParseDateOnly`.
 
-Todos los números que devuelve Yahoo en `quoteSummary`/`fundamentals-timeseries` llegan como `{"raw": x, "fmt": "texto formateado"}`; `RawValue`/`Field` extraen siempre `raw`.
+Every number Yahoo returns in `quoteSummary`/`fundamentals-timeseries` arrives as `{"raw": x, "fmt": "formatted text"}`; `RawValue`/`Field` always extract `raw`.
 
-## Notas
+## Notes
 
-- No requiere API key ni autenticación de usuario: solo cookies de sesión + un token "crumb" público, obtenidos automáticamente en `NewClient`.
-- `rango` e `intervalo` son los mismos valores que acepta Yahoo Finance en su UI/API: `1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max` y `1m, 2m, 5m, 15m, 30m, 60m/1h, 1d, 5d, 1wk, 1mo, 3mo` respectivamente. Yahoo limita cuánto histórico entrega para los intervalos intradía.
-- Sirve igual para acciones (`AAPL`), ETFs (`SPY`) y criptomonedas (`BTC-USD`) — todas comparten el mismo endpoint `chart` en Yahoo Finance.
+- `Client` is safe for concurrent use. It retries only on transient failures (network errors, 429, 5xx) with exponential backoff; on a 401 it refreshes the session.
+- Don't fire bursts of requests: Yahoo rate-limits by IP.
+- No API key or user authentication required: just session cookies plus a public "crumb" token, fetched automatically in `NewClient`.
+- `rang` and `interval` take the same values as Yahoo Finance's UI/API: `1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max` for ranges and `1m, 2m, 5m, 15m, 30m, 60m/1h, 1d, 5d, 1wk, 1mo, 3mo` for intervals. Yahoo limits how much history it returns for intraday intervals.
+- Works the same for stocks (`AAPL`), ETFs (`SPY`) and cryptocurrencies (`BTC-USD`) — they all share Yahoo Finance's `chart` endpoint.
 
 ## Tests
 
@@ -69,8 +77,8 @@ Todos los números que devuelve Yahoo en `quoteSummary`/`fundamentals-timeseries
 go test ./...
 ```
 
-Los tests no requieren red: simulan las respuestas de Yahoo con un `httptest.Server` local.
+Tests need no network access: they simulate Yahoo's responses with a local `httptest.Server`.
 
-## Licencia
+## License
 
 [MIT](LICENSE)

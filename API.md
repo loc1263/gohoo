@@ -1,9 +1,9 @@
 # API de gohoo
 
-Referencia completa del paquete `yahoo` (módulo `github.com/loc1263/gohoo`). Para una introducción rápida ver [README.md](README.md). Para qué significa cada módulo/campo que devuelve Yahoo en cada endpoint, ver [ENDPOINTS.md](ENDPOINTS.md).
+Referencia completa del paquete `gohoo` (módulo `github.com/loc1263/gohoo`). Para una introducción rápida ver [README.md](README.md). Para qué significa cada módulo/campo que devuelve Yahoo en cada endpoint, ver [ENDPOINTS.md](ENDPOINTS.md).
 
 ```go
-import yahoo "github.com/loc1263/gohoo"
+import "github.com/loc1263/gohoo"
 ```
 
 ## Índice
@@ -14,6 +14,8 @@ import yahoo "github.com/loc1263/gohoo"
   - [FundamentalsTimeseries](#fundamentalstimeseries)
   - [Chart](#chart)
   - [ChartSeries](#chartseries)
+- [Indicadores técnicos](#indicadores-técnicos)
+- [Detección de huecos](#detección-de-huecos)
 - [Tipos](#tipos)
   - [OHLCV](#ohlcv)
 - [Helpers de parseo JSON](#helpers-de-parseo-json)
@@ -31,7 +33,7 @@ type Client struct {
 }
 ```
 
-`Client` encapsula la sesión HTTP (cookies + token "crumb") necesaria para hablar con `query2.finance.yahoo.com`. Es seguro reutilizar la misma instancia para múltiples llamadas y tickers; no reutiliza estado entre tickers, así que no hace falta crear un `Client` por símbolo.
+`Client` encapsula la sesión HTTP (cookies + token "crumb") necesaria para hablar con `query2.finance.yahoo.com`. Es seguro reutilizar la misma instancia para múltiples llamadas y tickers, también desde varias goroutines; no hace falta crear un `Client` por símbolo.
 
 ### NewClient
 
@@ -47,7 +49,7 @@ Crea un `Client` autenticado:
 Devuelve error si no se pudo construir el cookie jar o si la respuesta del crumb viene vacía o es HTML (p. ej. una página de error/consentimiento en vez del token).
 
 ```go
-client, err := yahoo.NewClient()
+client, err := gohoo.NewClient()
 if err != nil {
     log.Fatal(err)
 }
@@ -75,7 +77,7 @@ data, err := client.QuoteSummary("AAPL", []string{"price", "summaryDetail"})
 if err != nil {
     log.Fatal(err)
 }
-price := yahoo.Field(data["price"].(map[string]interface{}), "regularMarketPrice")
+price := gohoo.Field(data["price"].(map[string]interface{}), "regularMarketPrice")
 ```
 
 ### FundamentalsTimeseries
@@ -130,6 +132,28 @@ fmt.Println(last.Time, last.Close)
 
 ---
 
+## Indicadores técnicos
+
+```go
+func ComputeIndicators(series []OHLCV) []IndicatorSet
+```
+
+Calcula SMA20, EMA12/26, RSI14, MACD(12,26,9), Bandas de Bollinger(20,2), ATR14, Estocástico(14,3), Williams %R14, ADX14, VWAP (anclado al inicio de la serie), OBV y SMA20 de volumen, más las señales `CrossSignal`, `RSISignal` y `BBSignal`. La serie debe estar ordenada cronológicamente (como la devuelve `ChartSeries`). El resultado está alineado por índice con la entrada; los valores sin historia suficiente son `math.NaN()`, y las señales que no aplican son `""`.
+
+```go
+series, _, _, _ := client.ChartSeries("AAPL", "1y", "1d")
+ind := gohoo.ComputeIndicators(series)
+fmt.Println(ind[len(ind)-1].RSI14)
+```
+
+## Detección de huecos
+
+```go
+func DetectGaps(series []OHLCV, factor float64) []Gap
+```
+
+Devuelve los huecos entre barras consecutivas mayores a `factor` veces el intervalo típico (mediana de los deltas). `factor = 5` es un buen punto de partida para velas diarias. `Gap` tiene `From`, `To`, `Esperado` y `Real`.
+
 ## Tipos
 
 ### OHLCV
@@ -172,7 +196,7 @@ func GetPath(m map[string]interface{}, keys ...string) interface{}
 Navega un árbol de `map[string]interface{}` siguiendo `keys` en orden, devolviendo `nil` en cuanto una clave no existe o el valor intermedio deja de ser un mapa. Útil para bajar varios niveles sin encadenar type-assertions manuales.
 
 ```go
-peRatio := yahoo.GetPath(data, "summaryDetail", "trailingPE")
+peRatio := gohoo.GetPath(data, "summaryDetail", "trailingPE")
 ```
 
 ### Field
@@ -231,7 +255,7 @@ Convierte un timestamp Unix a `"YYYY-MM-DD HH:MM:SS-07:00"` en la zona horaria `
 
 ```go
 ny, _ := time.LoadLocation("America/New_York")
-fecha := yahoo.EpochToDateTimeNY(earningsDate, ny)
+fecha := gohoo.EpochToDateTimeNY(earningsDate, ny)
 ```
 
 ### EpochToMidnight
@@ -269,7 +293,7 @@ Todas las funciones del `Client` devuelven errores envueltos con contexto (`fmt.
 - **Error de negocio de Yahoo** (`QuoteSummary`): `quoteSummary.error` no nulo, p. ej. ticker inexistente.
 - **Respuesta vacía/inválida** (`ChartSeries`): ticker sin histórico para el rango pedido, o símbolo inexistente.
 
-El cliente no reintenta automáticamente; ante un error transitorio (rate limit, timeout) es responsabilidad del caller reintentar con backoff.
+El cliente reintenta automáticamente (hasta 4 intentos en total, con backoff exponencial de 200ms, 400ms, 800ms) ante errores de red, HTTP 429 y HTTP 5xx. Ante un HTTP 401 renueva cookies+crumb y reintenta. Otros códigos (p. ej. 404) se devuelven de inmediato. Si se agotan los intentos, el error es `agotados 4 intentos: ...` y envuelve el último error. Un rate limit sostenido igual puede fallar: espaciar las llamadas.
 
 ## Límites y particularidades de Yahoo Finance
 

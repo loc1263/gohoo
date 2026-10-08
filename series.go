@@ -1,4 +1,4 @@
-package yahoo
+package gohoo
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 // OHLCV es una barra de precio/volumen del endpoint "chart", con su marca de
 // tiempo completa (la granularidad depende del intervalo pedido).
 type OHLCV struct {
-	Time                                      time.Time
+	Time                                     time.Time
 	Open, High, Low, Close, AdjClose, Volume interface{}
 }
 

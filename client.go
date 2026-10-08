@@ -1,9 +1,9 @@
-// Package yahoo es un cliente Go para los endpoints no oficiales de Yahoo
+// Package gohoo es un cliente Go para los endpoints no oficiales de Yahoo
 // Finance (quoteSummary, fundamentals-timeseries y chart): maneja la
 // autenticación por cookie+crumb y expone los datos crudos como
 // map[string]interface{}, más un helper de series OHLCV ya parseadas
 // (ChartSeries) para precios históricos de acciones, ETFs y criptomonedas.
-package yahoo
+package gohoo
 
 import (
 	"encoding/json"
@@ -14,6 +14,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -50,8 +51,16 @@ func isRetryableStatus(code int) bool {
 // Client encapsula la sesión HTTP (cookies + crumb) usada para hablar con los
 // endpoints no oficiales de Yahoo Finance.
 type Client struct {
-	http  *http.Client
+	http *http.Client
+
+	mu    sync.RWMutex // protege crumb (se renueva ante un HTTP 401)
 	crumb string
+}
+
+func (c *Client) getCrumb() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.crumb
 }
 
 // NewClient crea un Client ya autenticado (cookies de sesión + crumb).
@@ -146,7 +155,9 @@ func (c *Client) bootstrap() error {
 	if crumb == "" || strings.Contains(crumb, "<html") {
 		return fmt.Errorf("respuesta de crumb inválida: %q", crumb)
 	}
+	c.mu.Lock()
 	c.crumb = crumb
+	c.mu.Unlock()
 	return nil
 }
 
@@ -155,7 +166,7 @@ func (c *Client) bootstrap() error {
 func (c *Client) QuoteSummary(ticker string, modules []string) (map[string]interface{}, error) {
 	body, err := c.doGetAuthed(func() string {
 		return fmt.Sprintf("https://query2.finance.yahoo.com/v10/finance/quoteSummary/%s?modules=%s&crumb=%s",
-			url.PathEscape(ticker), url.QueryEscape(strings.Join(modules, ",")), url.QueryEscape(c.crumb))
+			url.PathEscape(ticker), url.QueryEscape(strings.Join(modules, ",")), url.QueryEscape(c.getCrumb()))
 	})
 	if err != nil {
 		return nil, err

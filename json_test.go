@@ -1,4 +1,4 @@
-package yahoo
+package gohoo
 
 import (
 	"testing"
@@ -69,9 +69,9 @@ func TestField(t *testing.T) {
 
 func TestAsFloat(t *testing.T) {
 	cases := []struct {
-		in      interface{}
-		want    float64
-		wantOk  bool
+		in     interface{}
+		want   float64
+		wantOk bool
 	}{
 		{3.14, 3.14, true},
 		{7, 7.0, true},

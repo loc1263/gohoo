@@ -1,4 +1,4 @@
-package yahoo
+package gohoo
 
 import (
 	"net/http"
