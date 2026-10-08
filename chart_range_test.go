@@ -1,0 +1,229 @@
+package gohoo
+
+import (
+	"context"
+	"errors"
+	"math"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	_ "time/tzdata" // zonas del exchange deterministas también en Windows
+)
+
+func serveFile(t *testing.T, name string) http.HandlerFunc {
+	t.Helper()
+	body, err := os.ReadFile("testdata/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(body)
+	}
+}
+
+// --- Comportamiento por defecto (caracterización de v0.1.0) ---
+
+func TestChartRangeSendsPeriods(t *testing.T) {
+	start := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v8/finance/chart/SPY", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Has("range") {
+			t.Errorf("query trae range: %v", q)
+		}
+		if q.Get("period1") != "1577836800" || q.Get("period2") != "1717200000" {
+			t.Errorf("period1/period2 = %s/%s", q.Get("period1"), q.Get("period2"))
+		}
+		if q.Get("interval") != "1mo" || q.Get("events") != "div,split" {
+			t.Errorf("interval/events = %s/%s", q.Get("interval"), q.Get("events"))
+		}
+		serveFile(t, "chart_monthly_ny.json")(w, r)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	res, err := client.ChartRange(context.Background(), "SPY", ChartParams{Start: start, End: end, Interval: "1mo", Events: "div,split"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Meta.Symbol != "SPY" || res.Meta.Currency != "USD" || res.Meta.InstrumentType != "ETF" {
+		t.Errorf("Meta = %+v", res.Meta)
+	}
+	if res.Meta.Location.String() != "America/New_York" {
+		t.Errorf("Location = %v, want America/New_York", res.Meta.Location)
+	}
+	// 6 barras en el fixture, la de mayo tiene close y adjclose null.
+	if len(res.Bars) != 5 {
+		t.Fatalf("len(Bars) = %d, want 5", len(res.Bars))
+	}
+	if b := res.Bars[1]; b.AdjClose != 480 || b.Close != 480 {
+		t.Errorf("barra con adjclose null = %+v, want AdjClose = Close = 480", b)
+	}
+	if got := res.Bars[0].Time; got.Location().String() != "America/New_York" || got.Day() != 1 || got.Hour() != 0 {
+		t.Errorf("Bars[0].Time = %v, want 1 de enero 00:00 en Nueva York", got)
+	}
+	if res.Dividends["2024-03-01"] != 1.5 {
+		t.Errorf("Dividends = %v", res.Dividends)
+	}
+}
+
+func TestChartRangeUsesRange(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v8/finance/chart/AAPL", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("range") != "5y" || q.Has("period1") || q.Get("interval") != "1d" || q.Get("events") != "div,splits" {
+			t.Errorf("query = %v", q)
+		}
+		w.Write([]byte(chartFixture))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	if _, err := client.ChartRange(context.Background(), "AAPL", ChartParams{Range: "5y"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestChartRangeValidationBeforeNetwork(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	t0 := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	bad := []ChartParams{
+		{Range: "1y", Start: t0},
+		{End: t0},
+		{},
+		{Start: t0, End: t0},
+	}
+	for _, p := range bad {
+		if _, err := client.ChartRange(context.Background(), "AAPL", p); err == nil {
+			t.Errorf("ChartRange(%+v): want error", p)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Errorf("la validación hizo %d requests, want 0", calls.Load())
+	}
+}
+
+func TestChartRangeNullFieldsAreNaN(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"chart":{"result":[{"meta":{"symbol":"X"},"timestamp":[1700000000,1700086400],
+			"indicators":{"quote":[{"open":[null,1],"high":[null,1],"low":[null,1],"close":[null,1],"volume":[null,1]}],
+			"adjclose":[{"adjclose":[10,1]}]}}],"error":null}}`))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	res, err := client.ChartRange(context.Background(), "X", ChartParams{Range: "1mo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := res.Bars[0]
+	if b.AdjClose != 10 || !math.IsNaN(b.Open) || !math.IsNaN(b.Close) || !math.IsNaN(b.Volume) {
+		t.Errorf("Bars[0] = %+v, want AdjClose 10 y el resto NaN", b)
+	}
+	if res.Meta.Location != time.UTC {
+		t.Errorf("sin exchangeTimezoneName Location = %v, want UTC", res.Meta.Location)
+	}
+}
+
+func TestChartRangeErrorsInBody(t *testing.T) {
+	cases := []struct {
+		file   string
+		status int
+		want   error
+	}{
+		{"chart_not_found.json", http.StatusNotFound, ErrNotFound},
+		{"chart_not_found.json", http.StatusOK, ErrNotFound},
+		{"chart_too_many.json", http.StatusOK, ErrRateLimit},
+	}
+	for _, c := range cases {
+		body, err := os.ReadFile("testdata/" + c.file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(c.status)
+			w.Write(body)
+		}))
+		client := newTestClient(t, srv)
+		_, err = client.ChartRange(context.Background(), "ZZZZ", ChartParams{Range: "1y"})
+		if !errors.Is(err, c.want) {
+			t.Errorf("%s con HTTP %d: error = %v, want %v", c.file, c.status, err, c.want)
+		}
+		srv.Close()
+	}
+}
+
+func TestChartRangeAndChartSeriesShareEvents(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(chartFixture))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, divs, splits, err := client.ChartSeries("AAPL", "1y", "1d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := client.ChartRange(context.Background(), "AAPL", ChartParams{Range: "1y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(divs) != len(res.Dividends) || len(splits) != len(res.Splits) {
+		t.Fatalf("eventos distintos: %v/%v vs %v/%v", divs, splits, res.Dividends, res.Splits)
+	}
+	for k, v := range divs {
+		if res.Dividends[k] != v {
+			t.Errorf("dividendo %s: %v vs %v", k, v, res.Dividends[k])
+		}
+	}
+	for k, v := range splits {
+		if res.Splits[k] != v {
+			t.Errorf("split %s: %v vs %v", k, v, res.Splits[k])
+		}
+	}
+}
+
+// --- Monthly ---
+
+func TestConcurrentClientUse(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) <= 8 { // a lo sumo 8 fallos en total: ningún pedido agota 10 intentos
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Write([]byte(chartFixture))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	p := DefaultRetryPolicy()
+	p.MaxAttempts = 10
+	p.Jitter = 0.3
+	testCfg(client).retry = &p
+	recordSleep(client)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for range 5 {
+				if _, err := client.ChartRange(context.Background(), "AAPL", ChartParams{Range: "1y"}); err != nil {
+					t.Error(err)
+				}
+			}
+		})
+	}
+	wg.Wait()
+}

@@ -81,3 +81,17 @@ func parseRetryAfter(h string, now time.Time) time.Duration {
 	}
 	return 0
 }
+
+// chartAPIError convierte un {"chart":{"error":{...}}} de Yahoo en un error
+// clasificable con errors.Is.
+func chartAPIError(ticker, code, description string) error {
+	msg := strings.TrimSpace(code + ": " + description)
+	lower := strings.ToLower(code + " " + description)
+	switch {
+	case strings.Contains(lower, "too many"):
+		return fmt.Errorf("chart de %s: %s: %w", ticker, msg, ErrRateLimit)
+	case strings.EqualFold(code, "Not Found") || strings.Contains(lower, "no data found"):
+		return fmt.Errorf("chart de %s: %s: %w", ticker, msg, ErrNotFound)
+	}
+	return fmt.Errorf("chart de %s devolvió error: %s", ticker, msg)
+}

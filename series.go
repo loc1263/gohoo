@@ -94,9 +94,20 @@ func (c *Client) ChartSeriesContext(ctx context.Context, ticker, rang, interval 
 		})
 	}
 
-	dividends := map[string]float64{}
-	splits := map[string]float64{}
-	if events, ok := result["events"].(map[string]interface{}); ok {
+	events, _ := result["events"].(map[string]interface{})
+	dividends, splits := parseEvents(events)
+
+	return series, dividends, splits, nil
+}
+
+// parseEvents extrae dividendos (monto) y splits (numerador/denominador) del
+// objeto "events" de un resultado de chart, indexados por fecha
+// "YYYY-MM-DD". Lo comparten ChartSeries y ChartRange para que ambos
+// interpreten los eventos igual.
+func parseEvents(events map[string]interface{}) (dividends, splits map[string]float64) {
+	dividends = map[string]float64{}
+	splits = map[string]float64{}
+	if events != nil {
 		if divs, ok := events["dividends"].(map[string]interface{}); ok {
 			for _, dRaw := range divs {
 				d, _ := dRaw.(map[string]interface{})
@@ -124,7 +135,7 @@ func (c *Client) ChartSeriesContext(ctx context.Context, ticker, rang, interval 
 		}
 	}
 
-	return series, dividends, splits, nil
+	return dividends, splits
 }
 
 // Gap describe un hueco inusual entre dos barras consecutivas de una serie
