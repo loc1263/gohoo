@@ -6,12 +6,12 @@
 package gohoo
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"sync"
@@ -52,9 +52,12 @@ func isRetryableStatus(code int) bool {
 // endpoints no oficiales de Yahoo Finance.
 type Client struct {
 	http *http.Client
+	cfg  *config // nil = configuración por defecto; puntero para que Client siga siendo comparable
 
 	mu    sync.RWMutex // protege crumb (se renueva ante un HTTP 401)
 	crumb string
+
+	bootMu sync.Mutex // serializa el bootstrap perezoso (WithLazyBootstrap)
 }
 
 func (c *Client) getCrumb() string {
@@ -64,24 +67,17 @@ func (c *Client) getCrumb() string {
 }
 
 // NewClient crea un Client ya autenticado (cookies de sesión + crumb).
+// Equivale a NewClientWithOptions() sin opciones.
 func NewClient() (*Client, error) {
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, err
-	}
-	c := &Client{http: &http.Client{Jar: jar, Timeout: 20 * time.Second}}
-	if err := c.bootstrap(); err != nil {
-		return nil, err
-	}
-	return c, nil
+	return NewClientWithOptions()
 }
 
-func (c *Client) doGet(rawURL string) ([]byte, error) {
-	req, err := http.NewRequest("GET", rawURL, nil)
+func (c *Client) doGet(ctx context.Context, rawURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("Accept", "*/*")
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -103,28 +99,35 @@ func (c *Client) doGet(rawURL string) ([]byte, error) {
 }
 
 // doGetAuthed llama a buildURL() y hace el GET resultante, reintentando ante
-// fallas transitorias: errores de red (timeouts, conexión rechazada, etc.)
-// y HTTP 429/5xx se reintentan con backoff exponencial; un HTTP 401 dispara
-// un `bootstrap` (cookies+crumb nuevos) y se reintenta con la URL
-// reconstruida a partir del crumb ya renovado. buildURL recibe una función
-// en lugar de una URL fija porque la URL de la mayoría de los endpoints
-// incluye el crumb vigente, que puede cambiar entre intentos.
-func (c *Client) doGetAuthed(buildURL func() string) ([]byte, error) {
+// fallas transitorias: errores de red
+// (timeouts, conexión rechazada, etc.) y HTTP 429/5xx se reintentan con
+// backoff exponencial; un HTTP 401 dispara un `bootstrap` (cookies+crumb
+// nuevos) y se reintenta con la URL reconstruida a partir del crumb ya
+// renovado. buildURL recibe una función en lugar de una URL fija porque la
+// URL de la mayoría de los endpoints incluye el crumb vigente, que puede
+// cambiar entre intentos. Si ctx termina, se devuelve de inmediato sin
+// consumir los intentos restantes.
+func (c *Client) doGetAuthed(ctx context.Context, buildURL func() string) ([]byte, error) {
 	var lastErr error
 	for attempt := range maxAttempts {
 		if attempt > 0 {
-			time.Sleep(retryBaseDelay * time.Duration(1<<(attempt-1)))
+			if err := c.sleep(ctx, retryBaseDelay*time.Duration(1<<(attempt-1))); err != nil {
+				return nil, fmt.Errorf("cancelado tras %d intentos: %w (último error: %w)", attempt, err, lastErr)
+			}
 		}
-		body, err := c.doGet(buildURL())
+		body, err := c.doGet(ctx, buildURL())
 		if err == nil {
 			return body, nil
+		}
+		if ctx.Err() != nil {
+			return nil, err
 		}
 		lastErr = err
 
 		var statusErr *httpStatusError
 		if errors.As(err, &statusErr) {
 			if statusErr.StatusCode == http.StatusUnauthorized {
-				if bootErr := c.bootstrap(); bootErr != nil {
+				if bootErr := c.bootstrap(ctx); bootErr != nil {
 					return nil, fmt.Errorf("re-autenticación tras HTTP 401 falló: %w", bootErr)
 				}
 				continue
@@ -141,13 +144,13 @@ func (c *Client) doGetAuthed(buildURL func() string) ([]byte, error) {
 
 // bootstrap obtiene cookies de consentimiento y el "crumb" requerido por las
 // APIs de query1/query2.finance.yahoo.com desde 2024.
-func (c *Client) bootstrap() error {
+func (c *Client) bootstrap(ctx context.Context) error {
 	// Primero una visita a fc.yahoo.com para fijar la cookie de sesión (A3, etc)
 	// antes de pedir el crumb. La respuesta puede ser 404 pero de todas formas
 	// fija la cookie necesaria.
-	_, _ = c.doGet("https://fc.yahoo.com")
+	_, _ = c.doGet(ctx, c.consentURL())
 
-	body, err := c.doGet("https://query2.finance.yahoo.com/v1/test/getcrumb")
+	body, err := c.doGet(ctx, c.baseURL()+"/v1/test/getcrumb")
 	if err != nil {
 		return fmt.Errorf("no se pudo obtener crumb de Yahoo Finance: %w", err)
 	}
@@ -161,12 +164,35 @@ func (c *Client) bootstrap() error {
 	return nil
 }
 
+// ensureCrumb hace el bootstrap si todavía no hay crumb (solo ocurre con
+// WithLazyBootstrap). Varias goroutines que llegan a la vez esperan al
+// mismo bootstrap en lugar de repetirlo.
+func (c *Client) ensureCrumb(ctx context.Context) error {
+	if c.getCrumb() != "" {
+		return nil
+	}
+	c.bootMu.Lock()
+	defer c.bootMu.Unlock()
+	if c.getCrumb() != "" {
+		return nil
+	}
+	return c.bootstrap(ctx)
+}
+
 // QuoteSummary llama a v10/finance/quoteSummary con los módulos solicitados y
 // devuelve el primer resultado como un árbol genérico de interface{}.
 func (c *Client) QuoteSummary(ticker string, modules []string) (map[string]interface{}, error) {
-	body, err := c.doGetAuthed(func() string {
-		return fmt.Sprintf("https://query2.finance.yahoo.com/v10/finance/quoteSummary/%s?modules=%s&crumb=%s",
-			url.PathEscape(ticker), url.QueryEscape(strings.Join(modules, ",")), url.QueryEscape(c.getCrumb()))
+	return c.QuoteSummaryContext(context.Background(), ticker, modules)
+}
+
+// QuoteSummaryContext es QuoteSummary con cancelación y plazos por ctx.
+func (c *Client) QuoteSummaryContext(ctx context.Context, ticker string, modules []string) (map[string]interface{}, error) {
+	if err := c.ensureCrumb(ctx); err != nil {
+		return nil, fmt.Errorf("quoteSummary de %s: %w", ticker, err)
+	}
+	body, err := c.doGetAuthed(ctx, func() string {
+		return fmt.Sprintf("%s/v10/finance/quoteSummary/%s?modules=%s&crumb=%s",
+			c.baseURL(), url.PathEscape(ticker), url.QueryEscape(strings.Join(modules, ",")), url.QueryEscape(c.getCrumb()))
 	})
 	if err != nil {
 		return nil, err
@@ -198,11 +224,17 @@ func (c *Client) QuoteSummary(ticker string, modules []string) (map[string]inter
 // FundamentalsTimeseries llama al endpoint de fundamentals-timeseries para un
 // conjunto de "type" (p.ej. annualTotalRevenue, quarterlyNetIncome, ...).
 func (c *Client) FundamentalsTimeseries(ticker string, types []string) (map[string]interface{}, error) {
+	return c.FundamentalsTimeseriesContext(context.Background(), ticker, types)
+}
+
+// FundamentalsTimeseriesContext es FundamentalsTimeseries con cancelación y
+// plazos por ctx.
+func (c *Client) FundamentalsTimeseriesContext(ctx context.Context, ticker string, types []string) (map[string]interface{}, error) {
 	period2 := time.Now().Unix()
 	period1 := time.Now().AddDate(-6, 0, 0).Unix()
-	body, err := c.doGetAuthed(func() string {
-		return fmt.Sprintf("https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/%s?symbol=%s&type=%s&period1=%d&period2=%d",
-			url.PathEscape(ticker), url.QueryEscape(ticker), url.QueryEscape(strings.Join(types, ",")), period1, period2)
+	body, err := c.doGetAuthed(ctx, func() string {
+		return fmt.Sprintf("%s/ws/fundamentals-timeseries/v1/finance/timeseries/%s?symbol=%s&type=%s&period1=%d&period2=%d",
+			c.baseURL(), url.PathEscape(ticker), url.QueryEscape(ticker), url.QueryEscape(strings.Join(types, ",")), period1, period2)
 	})
 	if err != nil {
 		return nil, err
@@ -217,9 +249,14 @@ func (c *Client) FundamentalsTimeseries(ticker string, types []string) (map[stri
 // Chart llama al endpoint v8/finance/chart con el rango e intervalos pedidos,
 // incluyendo dividendos y splits.
 func (c *Client) Chart(ticker, rang, interval string) (map[string]interface{}, error) {
-	body, err := c.doGetAuthed(func() string {
-		return fmt.Sprintf("https://query2.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s&events=div,splits",
-			url.PathEscape(ticker), url.QueryEscape(rang), url.QueryEscape(interval))
+	return c.ChartContext(context.Background(), ticker, rang, interval)
+}
+
+// ChartContext es Chart con cancelación y plazos por ctx.
+func (c *Client) ChartContext(ctx context.Context, ticker, rang, interval string) (map[string]interface{}, error) {
+	body, err := c.doGetAuthed(ctx, func() string {
+		return fmt.Sprintf("%s/v8/finance/chart/%s?range=%s&interval=%s&events=div,splits",
+			c.baseURL(), url.PathEscape(ticker), url.QueryEscape(rang), url.QueryEscape(interval))
 	})
 	if err != nil {
 		return nil, err

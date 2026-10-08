@@ -1,6 +1,7 @@
 package gohoo
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"time"
@@ -34,7 +35,12 @@ func FirstResult(chart map[string]interface{}) (map[string]interface{}, bool) {
 // tanto para acciones como para criptomonedas (que normalmente no traen
 // dividendos ni splits, por lo que esos mapas quedarán vacíos).
 func (c *Client) ChartSeries(ticker, rang, interval string) ([]OHLCV, map[string]float64, map[string]float64, error) {
-	chart, err := c.Chart(ticker, rang, interval)
+	return c.ChartSeriesContext(context.Background(), ticker, rang, interval)
+}
+
+// ChartSeriesContext es ChartSeries con cancelación y plazos por ctx.
+func (c *Client) ChartSeriesContext(ctx context.Context, ticker, rang, interval string) ([]OHLCV, map[string]float64, map[string]float64, error) {
+	chart, err := c.ChartContext(ctx, ticker, rang, interval)
 	if err != nil {
 		return nil, nil, nil, err
 	}
