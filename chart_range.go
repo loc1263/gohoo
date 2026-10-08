@@ -30,9 +30,12 @@ type ChartParams struct {
 
 // Bar es una barra de precio con valores tipados.
 //
-// Criterio para los null de Yahoo: la barra se descarta si Close y AdjClose
-// son null; si solo falta AdjClose se usa Close; cualquier otro campo null
-// (Open, High, Low, Close o Volume) queda en math.NaN(), nunca en 0.
+// Criterio para los null de Yahoo: si la respuesta trae la serie adjclose,
+// la barra se descarta cuando su AdjClose es null (nunca se mezcla un
+// cierre sin ajustar en una serie ajustada); si la respuesta no trae
+// adjclose en absoluto, AdjClose = Close y se descartan las barras con
+// Close null. Cualquier otro campo null (Open, High, Low, Close o Volume)
+// queda en math.NaN(), nunca en 0.
 type Bar struct {
 	// Time está expresado en la zona horaria del exchange (ChartMeta.Location).
 	Time                                     time.Time
@@ -52,8 +55,8 @@ type ChartMeta struct {
 // ChartResult es el resultado tipado de ChartRange.
 type ChartResult struct {
 	Meta ChartMeta
-	// Bars en orden cronológico, sin las barras donde Close y AdjClose son
-	// null.
+	// Bars en orden cronológico, sin las barras cuyo AdjClose es null (ver
+	// Bar).
 	Bars []Bar
 	// Dividends y Splits indexados por fecha "YYYY-MM-DD" (UTC), con el
 	// mismo criterio que ChartSeries.
@@ -199,6 +202,11 @@ func (r *chartResponse) toResult(ticker string) (*ChartResult, error) {
 	if len(res.Indicators.AdjClose) > 0 {
 		adjs = res.Indicators.AdjClose[0].AdjClose
 	}
+	// Sin serie ajustada (p. ej. algunos índices) se usa el cierre para toda
+	// la serie; con serie ajustada, nunca se completa un hueco con Close.
+	if len(adjs) == 0 {
+		adjs = closes
+	}
 
 	out.Bars = make([]Bar, 0, len(res.Timestamp))
 	for i, ts := range res.Timestamp {
@@ -206,11 +214,8 @@ func (r *chartResponse) toResult(ticker string) (*ChartResult, error) {
 			continue
 		}
 		cl, adj := at(closes, i), at(adjs, i)
-		if cl == nil && adj == nil {
-			continue
-		}
 		if adj == nil {
-			adj = cl
+			continue
 		}
 		out.Bars = append(out.Bars, Bar{
 			Time:     time.Unix(*ts, 0).In(loc),

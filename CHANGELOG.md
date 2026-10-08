@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-10-08
+
+### Fixed
+- `ChartRange` no longer fills a bar whose `adjclose` is `null` with the unadjusted `close`, which mixed an unadjusted price into an adjusted series. That bar is now dropped. `close` is still used for the whole series when the response has no `adjclose` at all.
+- `ChartResult.Monthly` breaks ties between bars with the same timestamp in favor of the later one in `Bars`, as documented ("the most recent bar wins").
+
 ## [0.2.0] - 2026-10-08
 
 All changes are additive: no exported signature or default behavior changed

@@ -36,10 +36,26 @@ func checkMonthly(t *testing.T, dates []time.Time, adj []float64, wantDates []st
 func TestMonthlyNewYorkLiveBarWinsAcrossDST(t *testing.T) {
 	dates, adj := monthlyFromFile(t, "chart_monthly_ny.json")
 	// Abril tiene la barra mensual (505) y la "en vivo" del 15 (503): gana la
-	// más reciente. Mayo es todo null y no aparece. El 1 de abril ya es EDT.
+	// más reciente. Febrero (adjclose null) y mayo (todo null) no aparecen:
+	// nunca se rellena con el cierre sin ajustar. El 1 de abril ya es EDT.
 	checkMonthly(t, dates, adj,
-		[]string{"2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"},
-		[]float64{465, 480, 495, 503})
+		[]string{"2024-01-01", "2024-03-01", "2024-04-01"},
+		[]float64{465, 495, 503})
+}
+
+func TestMonthlySameTimeLaterBarWins(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Date(2021, 10, 1, 0, 0, 0, 0, ny)
+	r := &ChartResult{Bars: []Bar{
+		{Time: t0, AdjClose: 1.5},
+		{Time: t0, AdjClose: 2.5},
+		{Time: t0.AddDate(0, 1, 0), AdjClose: 3},
+	}}
+	dates, adj := r.Monthly()
+	checkMonthly(t, dates, adj, []string{"2021-10-01", "2021-11-01"}, []float64{2.5, 3})
 }
 
 func TestMonthlyTokyoUsesExchangeCalendar(t *testing.T) {

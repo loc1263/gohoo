@@ -60,12 +60,15 @@ func TestChartRangeSendsPeriods(t *testing.T) {
 	if res.Meta.Location.String() != "America/New_York" {
 		t.Errorf("Location = %v, want America/New_York", res.Meta.Location)
 	}
-	// 6 barras en el fixture, la de mayo tiene close y adjclose null.
-	if len(res.Bars) != 5 {
-		t.Fatalf("len(Bars) = %d, want 5", len(res.Bars))
+	// 6 barras en el fixture: febrero tiene adjclose null (close 480) y mayo
+	// tiene ambos null; las dos se descartan.
+	if len(res.Bars) != 4 {
+		t.Fatalf("len(Bars) = %d, want 4", len(res.Bars))
 	}
-	if b := res.Bars[1]; b.AdjClose != 480 || b.Close != 480 {
-		t.Errorf("barra con adjclose null = %+v, want AdjClose = Close = 480", b)
+	for _, b := range res.Bars {
+		if b.Time.Month() == time.February || b.Close == 480 {
+			t.Errorf("barra con adjclose null no descartada: %+v", b)
+		}
 	}
 	if got := res.Bars[0].Time; got.Location().String() != "America/New_York" || got.Day() != 1 || got.Hour() != 0 {
 		t.Errorf("Bars[0].Time = %v, want 1 de enero 00:00 en Nueva York", got)
@@ -113,6 +116,45 @@ func TestChartRangeValidationBeforeNetwork(t *testing.T) {
 	}
 	if calls.Load() != 0 {
 		t.Errorf("la validación hizo %d requests, want 0", calls.Load())
+	}
+}
+
+func TestChartRangeAdjCloseCriterion(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want []float64 // AdjClose de las barras resultantes
+	}{
+		{"adjclose null con close: se descarta", `{"chart":{"result":[{"meta":{},"timestamp":[1633060800,1635739200],
+			"indicators":{"quote":[{"close":[1,3]}],"adjclose":[{"adjclose":[1.5,null]}]}}],"error":null}}`, []float64{1.5}},
+		{"sin serie adjclose: usa close", `{"chart":{"result":[{"meta":{},"timestamp":[1633060800,1635739200],
+			"indicators":{"quote":[{"close":[10.5,11.5]}]}}],"error":null}}`, []float64{10.5, 11.5}},
+		{"adjclose vacío: usa close y descarta close null", `{"chart":{"result":[{"meta":{},"timestamp":[1633060800,1635739200],
+			"indicators":{"quote":[{"close":[null,11.5]}],"adjclose":[{"adjclose":[]}]}}],"error":null}}`, []float64{11.5}},
+	}
+	for _, c := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(c.body))
+		}))
+		res, err := newTestClient(t, srv).ChartRange(context.Background(), "X", ChartParams{Range: "1y"})
+		srv.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		var got []float64
+		for _, b := range res.Bars {
+			got = append(got, b.AdjClose)
+		}
+		if len(got) != len(c.want) {
+			t.Errorf("%s: AdjClose = %v, want %v", c.name, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("%s: AdjClose = %v, want %v", c.name, got, c.want)
+				break
+			}
+		}
 	}
 }
 

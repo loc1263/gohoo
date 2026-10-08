@@ -202,7 +202,7 @@ res, err := client.ChartRange(ctx, "SPY", gohoo.ChartParams{
 func (r *ChartResult) Monthly() (dates []time.Time, adj []float64)
 ```
 
-Una observación por mes calendario, en orden cronológico: la fecha es el día 1 a medianoche **UTC** del mes en que cae la barra **según la zona del exchange**, y el valor es su `AdjClose`. Si hay dos barras en el mismo mes (la mensual y la "en vivo" del mes en curso), gana la más reciente. Es una función pura sobre `Bars` (no hace red).
+Una observación por mes calendario, en orden cronológico: la fecha es el día 1 a medianoche **UTC** del mes en que cae la barra **según la zona del exchange**, y el valor es su `AdjClose`. Si hay dos barras en el mismo mes (la mensual y la "en vivo" del mes en curso), gana la más reciente (a igual hora, la que aparece después en `Bars`). Es una función pura sobre `Bars` (no hace red).
 
 Usar la zona del exchange importa: la barra mensual de marzo de Tokio tiene timestamp `2024-02-29 15:00 UTC` (medianoche JST); en UTC caería en febrero.
 
@@ -281,7 +281,7 @@ type Bar struct {
 }
 ```
 
-Criterio para los `null` de Yahoo en `Bar`: la barra se **descarta** si `Close` y `AdjClose` son `null`; si solo falta `AdjClose` se usa `Close`; cualquier otro campo `null` queda en `math.NaN()` (nunca en `0`). `OHLCV.Time` sigue en UTC; `Bar.Time` está en la zona del exchange.
+Criterio para los `null` de Yahoo en `Bar`: si la respuesta trae la serie `adjclose`, la barra se **descarta** cuando su `AdjClose` es `null` (nunca se mezcla un cierre sin ajustar en una serie ajustada); si la respuesta no trae `adjclose` en absoluto, `AdjClose = Close` para toda la serie y se descartan las barras con `Close` `null`. Cualquier otro campo `null` queda en `math.NaN()` (nunca en `0`). `OHLCV.Time` sigue en UTC; `Bar.Time` está en la zona del exchange.
 
 ### RetryPolicy
 

@@ -9,7 +9,8 @@ import (
 // a medianoche UTC del mes en que cae la barra según la zona del exchange
 // (Bar.Time), y el valor es su AdjClose. Si hay dos barras en el mismo mes
 // (típicamente la mensual y la "en vivo" del mes en curso), gana la de Time
-// más reciente. El resultado queda en orden cronológico.
+// más reciente; a igual Time, la que aparece después en Bars. El resultado
+// queda en orden cronológico.
 func (r *ChartResult) Monthly() (dates []time.Time, adj []float64) {
 	if r == nil || len(r.Bars) == 0 {
 		return nil, nil
@@ -22,7 +23,7 @@ func (r *ChartResult) Monthly() (dates []time.Time, adj []float64) {
 	for _, b := range r.Bars {
 		y, m, _ := b.Time.Date()
 		key := time.Date(y, m, 1, 0, 0, 0, 0, time.UTC)
-		if prev, ok := byMonth[key]; ok && !b.Time.After(prev.t) {
+		if prev, ok := byMonth[key]; ok && b.Time.Before(prev.t) {
 			continue
 		}
 		byMonth[key] = obs{t: b.Time, adj: b.AdjClose}
