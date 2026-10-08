@@ -1,0 +1,60 @@
+{
+ "chart": {
+  "result": [
+   {
+    "meta": {
+     "currency": "JPY",
+     "symbol": "7203.T",
+     "exchangeTimezoneName": "Asia/Tokyo",
+     "instrumentType": "EQUITY"
+    },
+    "timestamp": [
+     1709218800,
+     1711897200,
+     1712728800
+    ],
+    "indicators": {
+     "quote": [
+      {
+       "open": [
+        3000.0,
+        3100.0,
+        3150.0
+       ],
+       "high": [
+        3000.0,
+        3100.0,
+        3150.0
+       ],
+       "low": [
+        3000.0,
+        3100.0,
+        3150.0
+       ],
+       "close": [
+        3000.0,
+        3100.0,
+        3150.0
+       ],
+       "volume": [
+        1000,
+        1000,
+        1000
+       ]
+      }
+     ],
+     "adjclose": [
+      {
+       "adjclose": [
+        3000.0,
+        3100.0,
+        3150.0
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "error": null
+ }
+}

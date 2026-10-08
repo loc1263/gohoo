@@ -14,10 +14,16 @@ import "github.com/loc1263/gohoo"
   - [FundamentalsTimeseries](#fundamentalstimeseries)
   - [Chart](#chart)
   - [ChartSeries](#chartseries)
+  - [NewClientWithOptions](#newclientwithoptions)
+  - [Variantes con context](#variantes-con-context)
+  - [ChartRange](#chartrange)
+  - [ChartResult.Monthly](#chartresultmonthly)
 - [Indicadores técnicos](#indicadores-técnicos)
 - [Detección de huecos](#detección-de-huecos)
 - [Tipos](#tipos)
   - [OHLCV](#ohlcv)
+  - [ChartParams, ChartResult, ChartMeta, Bar](#chartparams-chartresult-chartmeta-bar)
+  - [RetryPolicy](#retrypolicy)
 - [Helpers de parseo JSON](#helpers-de-parseo-json)
 - [Helpers de fecha/hora](#helpers-de-fechahora)
 - [Manejo de errores](#manejo-de-errores)
@@ -130,6 +136,78 @@ last := series[len(series)-1]
 fmt.Println(last.Time, last.Close)
 ```
 
+### NewClientWithOptions
+
+```go
+func NewClientWithOptions(opts ...Option) (*Client, error)
+
+func WithHTTPClient(h *http.Client) Option
+func WithBaseURL(u string) Option
+func WithUserAgent(ua string) Option
+func WithRetryPolicy(p RetryPolicy) Option
+func WithLazyBootstrap() Option
+```
+
+Constructor configurable. Sin opciones es idéntico a `NewClient()` (que de hecho delega en él).
+
+| Opción | Efecto | Por defecto |
+| --- | --- | --- |
+| `WithHTTPClient(h)` | Usa `h` para todas las requests. Si `h` no trae `Jar`, se usa una copia de `h` con un cookie jar nuevo (el crumb depende de las cookies); `h` no se modifica. | `http.Client` con timeout de 20 s |
+| `WithBaseURL(u)` | Host de `chart`, `quoteSummary`, `fundamentals-timeseries` y `getcrumb` (p. ej. `https://query1.finance.yahoo.com` o un `httptest.Server`). Error si `u` no tiene esquema y host. | `https://query2.finance.yahoo.com` |
+| `WithUserAgent(ua)` | Header `User-Agent` de todas las requests. | Chrome/Windows de escritorio |
+| `WithRetryPolicy(p)` | Política de reintentos (ver [RetryPolicy](#retrypolicy)). | `DefaultRetryPolicy()` |
+| `WithLazyBootstrap()` | El constructor no hace red; cookie+crumb se piden la primera vez que hacen falta (`QuoteSummary`) o tras un 401. `Chart*` nunca los exige. | Bootstrap inmediato |
+
+```go
+client, err := gohoo.NewClientWithOptions(
+    gohoo.WithLazyBootstrap(),
+    gohoo.WithBaseURL("https://query1.finance.yahoo.com"),
+    gohoo.WithRetryPolicy(gohoo.RetryPolicy{MaxAttempts: 1, RetryRateLimit: false}),
+)
+```
+
+### Variantes con context
+
+```go
+func (c *Client) QuoteSummaryContext(ctx context.Context, ticker string, modules []string) (map[string]interface{}, error)
+func (c *Client) FundamentalsTimeseriesContext(ctx context.Context, ticker string, types []string) (map[string]interface{}, error)
+func (c *Client) ChartContext(ctx context.Context, ticker, rango, intervalo string) (map[string]interface{}, error)
+func (c *Client) ChartSeriesContext(ctx context.Context, ticker, rango, intervalo string) ([]OHLCV, map[string]float64, map[string]float64, error)
+```
+
+Igual que los métodos sin sufijo (que delegan en estas con `context.Background()`), pero la request y la espera entre reintentos se cortan cuando `ctx` termina: el método vuelve de inmediato, sin consumir los intentos restantes, con un error que cumple `errors.Is(err, context.Canceled)` (o `context.DeadlineExceeded`) y que además envuelve el último error HTTP.
+
+### ChartRange
+
+```go
+func (c *Client) ChartRange(ctx context.Context, ticker string, p ChartParams) (*ChartResult, error)
+```
+
+Llama a `v8/finance/chart/{ticker}` por rango relativo (`p.Range`) o por fechas (`p.Start`/`p.End` → `period1`/`period2`) y devuelve un resultado tipado ([ChartResult](#chartparams-chartresult-chartmeta-bar)) con `float64` en lugar de `interface{}` y las barras en la zona horaria del exchange.
+
+Validación (antes de tocar la red): `Range` y `Start` son excluyentes; hace falta uno de los dos; `End` requiere `Start` y debe ser posterior. `End` cero = ahora; `Interval` vacío = `1d`; `Events` vacío = `div,splits`.
+
+A diferencia de `Chart`, un `{"chart":{"error":{...}}}` de Yahoo (con status 200 o 404) se devuelve como error: `errors.Is(err, ErrNotFound)` para símbolos sin datos y `errors.Is(err, ErrRateLimit)` para "Too Many Requests".
+
+```go
+res, err := client.ChartRange(ctx, "SPY", gohoo.ChartParams{
+    Start:    time.Date(2015, 1, 1, 0, 0, 0, 0, time.UTC),
+    Interval: "1mo",
+})
+```
+
+### ChartResult.Monthly
+
+```go
+func (r *ChartResult) Monthly() (dates []time.Time, adj []float64)
+```
+
+Una observación por mes calendario, en orden cronológico: la fecha es el día 1 a medianoche **UTC** del mes en que cae la barra **según la zona del exchange**, y el valor es su `AdjClose`. Si hay dos barras en el mismo mes (la mensual y la "en vivo" del mes en curso), gana la más reciente. Es una función pura sobre `Bars` (no hace red).
+
+Usar la zona del exchange importa: la barra mensual de marzo de Tokio tiene timestamp `2024-02-29 15:00 UTC` (medianoche JST); en UTC caería en febrero.
+
+> **Windows:** si la máquina no tiene Go instalado, `time.LoadLocation` no encuentra la base de zonas y `Meta.Location` queda en UTC. La aplicación debe importar `_ "time/tzdata"`; `gohoo` no lo hace para no sumar ~450 KB a todos los binarios.
+
 ---
 
 ## Indicadores técnicos
@@ -172,6 +250,56 @@ func FirstResult(chart map[string]interface{}) (map[string]interface{}, bool)
 ```
 
 Extrae `chart["chart"]["result"][0]` de la respuesta cruda de `Chart`, devolviendo `false` si la forma no coincide con lo esperado. Lo usa `ChartSeries` internamente; exportada por si se necesita trabajar con la respuesta cruda de `Chart` directamente.
+
+### ChartParams, ChartResult, ChartMeta, Bar
+
+```go
+type ChartParams struct {
+    Range    string    // "5y", "max"...; excluyente con Start/End
+    Start    time.Time // period1
+    End      time.Time // period2; cero = ahora
+    Interval string    // vacío = "1d"
+    Events   string    // vacío = "div,splits"
+}
+
+type ChartResult struct {
+    Meta      ChartMeta
+    Bars      []Bar              // orden cronológico
+    Dividends map[string]float64 // por fecha "YYYY-MM-DD", igual que ChartSeries
+    Splits    map[string]float64
+}
+
+type ChartMeta struct {
+    Symbol, Currency, InstrumentType string
+    ExchangeTimezoneName             string
+    Location                         *time.Location // UTC si no se pudo cargar
+}
+
+type Bar struct {
+    Time                                     time.Time // en Meta.Location
+    Open, High, Low, Close, AdjClose, Volume float64
+}
+```
+
+Criterio para los `null` de Yahoo en `Bar`: la barra se **descarta** si `Close` y `AdjClose` son `null`; si solo falta `AdjClose` se usa `Close`; cualquier otro campo `null` queda en `math.NaN()` (nunca en `0`). `OHLCV.Time` sigue en UTC; `Bar.Time` está en la zona del exchange.
+
+### RetryPolicy
+
+```go
+type RetryPolicy struct {
+    MaxAttempts     int           // total de intentos; <= 0 = 4; 1 = sin reintentos
+    BaseDelay       time.Duration // <= 0 = 200ms; se duplica en cada reintento
+    MaxDelay        time.Duration // tope de cada espera; 0 = sin tope
+    Jitter          float64       // 0..1: suma hasta Jitter*retardo aleatorio
+    RetryRateLimit  bool          // reintentar HTTP 429
+    HonorRetryAfter bool          // esperar al menos lo que pida Retry-After
+    OnRetry         func(attempt int, err error, delay time.Duration)
+}
+
+func DefaultRetryPolicy() RetryPolicy // 4 intentos, 200ms, RetryRateLimit: true
+```
+
+Los booleanos se toman tal cual, así que para cambiar un solo campo conviene partir de `DefaultRetryPolicy()`. `OnRetry` recibe el número del intento que falló (1 = el primero). El jitter usa un generador propio del cliente, no el global.
 
 ---
 
@@ -293,7 +421,40 @@ Todas las funciones del `Client` devuelven errores envueltos con contexto (`fmt.
 - **Error de negocio de Yahoo** (`QuoteSummary`): `quoteSummary.error` no nulo, p. ej. ticker inexistente.
 - **Respuesta vacía/inválida** (`ChartSeries`): ticker sin histórico para el rango pedido, o símbolo inexistente.
 
-El cliente reintenta automáticamente (hasta 4 intentos en total, con backoff exponencial de 200ms, 400ms, 800ms) ante errores de red, HTTP 429 y HTTP 5xx. Ante un HTTP 401 renueva cookies+crumb y reintenta. Otros códigos (p. ej. 404) se devuelven de inmediato. Si se agotan los intentos, el error es `agotados 4 intentos: ...` y envuelve el último error. Un rate limit sostenido igual puede fallar: espaciar las llamadas.
+### Errores tipados
+
+```go
+var (
+    ErrRateLimit    error // HTTP 429, o chart.error "Too Many Requests" (ChartRange)
+    ErrUnauthorized error // HTTP 401 que persistió tras renovar el crumb
+    ErrNotFound     error // HTTP 404, o chart.error "Not Found" (ChartRange)
+)
+
+type StatusError struct {
+    StatusCode int
+    URL        string
+    Body       string        // primeros 300 bytes
+    RetryAfter time.Duration // header Retry-After; 0 si no vino
+}
+
+func IsRateLimit(err error) bool // errors.Is(err, ErrRateLimit)
+```
+
+Toda respuesta HTTP distinta de 200 es un `*StatusError` (se obtiene con `errors.As`) y se compara con los sentinelas con `errors.Is`, también cuando viene envuelta en `agotados N intentos: ...`:
+
+```go
+_, err := client.Chart("AAPL", "1y", "1d")
+if gohoo.IsRateLimit(err) {
+    var se *gohoo.StatusError
+    if errors.As(err, &se) && se.RetryAfter > 0 {
+        time.Sleep(se.RetryAfter)
+    }
+}
+```
+
+### Reintentos
+
+Con la política por defecto, el cliente reintenta automáticamente (hasta 4 intentos en total, con backoff exponencial de 200ms, 400ms, 800ms) ante errores de red, HTTP 429 y HTTP 5xx. Ante un HTTP 401 renueva cookies+crumb y reintenta. Otros códigos (p. ej. 404) se devuelven de inmediato. Si se agotan los intentos, el error es `agotados 4 intentos: ...` y envuelve el último error. Un rate limit sostenido igual puede fallar: espaciar las llamadas, o usar `WithRetryPolicy` para no reintentar 429 y aplicar un cooldown propio.
 
 ## Límites y particularidades de Yahoo Finance
 
@@ -301,4 +462,4 @@ El cliente reintenta automáticamente (hasta 4 intentos en total, con backoff ex
 - Yahoo limita cuánto histórico intradía entrega (p. ej. `interval=1m` solo cubre los últimos ~7 días, independientemente del `range` pedido).
 - `FundamentalsTimeseries` siempre pide una ventana de 6 años; para históricos más largos hay que paginar manualmente ajustando `period1`/`period2` fuera de esta librería (actualmente no configurable vía parámetros).
 - Mismo endpoint `chart` sirve acciones (`AAPL`), ETFs (`SPY`) y criptomonedas (`BTC-USD`); solo cambia qué eventos (`dividends`/`splits`) trae cada uno.
-- El `User-Agent` está fijado a un string de Chrome/Windows de escritorio (ver `client.go`); si Yahoo empieza a bloquear ese UA, es el primer lugar donde mirar.
+- El `User-Agent` por defecto es un string de Chrome/Windows de escritorio (ver `client.go`); si Yahoo empieza a bloquear ese UA, se puede cambiar con `WithUserAgent`.

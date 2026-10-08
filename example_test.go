@@ -1,9 +1,14 @@
 package gohoo_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"time"
+	_ "time/tzdata" // zonas horarias del exchange también en Windows
 
 	"github.com/loc1263/gohoo"
 )
@@ -83,4 +88,68 @@ func ExampleDetectGaps() {
 		fmt.Println(g.From.Format("2006-01-02"), "->", g.To.Format("2006-01-02"))
 	}
 	// Output: 2024-01-05 -> 2024-01-25
+}
+
+// Download monthly adjusted closes for a date range, one observation per
+// calendar month of the exchange. A local server stands in for Yahoo so the
+// example runs without network; against Yahoo just drop WithBaseURL.
+func ExampleChartResult_Monthly() {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Monthly bars for Feb and Mar 2024 plus the "live" bar of March 15.
+		w.Write([]byte(`{"chart":{"result":[{
+			"meta":{"symbol":"SPY","currency":"USD","exchangeTimezoneName":"America/New_York"},
+			"timestamp":[1706763600,1709269200,1710532800],
+			"indicators":{"quote":[{"close":[508.1,512.4,509.8]}],"adjclose":[{"adjclose":[500.0,505.0,503.2]}]}
+		}],"error":null}}`))
+	}))
+	defer srv.Close()
+
+	client, err := gohoo.NewClientWithOptions(
+		gohoo.WithBaseURL(srv.URL),
+		gohoo.WithLazyBootstrap(), // chart doesn't need cookie+crumb
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	res, err := client.ChartRange(context.Background(), "SPY", gohoo.ChartParams{
+		Start:    time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
+		End:      time.Date(2024, 3, 31, 0, 0, 0, 0, time.UTC),
+		Interval: "1mo",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	dates, adj := res.Monthly()
+	for i := range dates {
+		fmt.Println(dates[i].Format("2006-01-02"), adj[i])
+	}
+	// Output:
+	// 2024-02-01 500
+	// 2024-03-01 503.2
+}
+
+// Leave rate-limit handling to the caller: no retries on HTTP 429, and the
+// error is recognizable with errors.Is.
+func ExampleWithRetryPolicy() {
+	client, err := gohoo.NewClientWithOptions(
+		gohoo.WithLazyBootstrap(),
+		gohoo.WithRetryPolicy(gohoo.RetryPolicy{MaxAttempts: 1, RetryRateLimit: false}),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err = client.ChartRange(ctx, "AAPL", gohoo.ChartParams{Range: "5y", Interval: "1mo"})
+	var se *gohoo.StatusError
+	switch {
+	case gohoo.IsRateLimit(err):
+		if errors.As(err, &se) && se.RetryAfter > 0 {
+			fmt.Println("rate limited, retry after", se.RetryAfter)
+		}
+	case errors.Is(err, gohoo.ErrNotFound):
+		fmt.Println("no data")
+	case err != nil:
+		log.Fatal(err)
+	}
 }

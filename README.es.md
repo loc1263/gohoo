@@ -57,6 +57,12 @@ func main() {
 - `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]interface{}, error)` — estados financieros anuales/trimestrales vía `fundamentals-timeseries`.
 - `(*Client) Chart(ticker, rango, intervalo string) (map[string]interface{}, error)` — respuesta cruda del endpoint `chart` (OHLCV + dividendos/splits).
 - `(*Client) ChartSeries(ticker, rango, intervalo string) ([]OHLCV, dividendos, splits map[string]float64, error)` — `Chart` ya parseado a una serie ordenada, más dividendos/splits indexados por fecha (`"YYYY-MM-DD"`).
+- `NewClientWithOptions(opts ...Option) (*Client, error)` — cliente configurable: `WithHTTPClient`, `WithBaseURL`, `WithUserAgent`, `WithRetryPolicy`, `WithLazyBootstrap` (no hace red hasta que de verdad se necesita el crumb). Sin opciones se comporta exactamente igual que `NewClient()`.
+- `QuoteSummaryContext`, `FundamentalsTimeseriesContext`, `ChartContext`, `ChartSeriesContext` — iguales a los anteriores, cancelables con un `context.Context` (también durante la espera entre reintentos).
+- `(*Client) ChartRange(ctx, ticker string, p ChartParams) (*ChartResult, error)` — `chart` por rango relativo o por fechas (`period1`/`period2`), con barras `float64` en la zona horaria del exchange y los `null` de Yahoo resueltos.
+- `(*ChartResult) Monthly() (dates []time.Time, adj []float64)` — un cierre ajustado por mes calendario; dentro de un mes gana la barra más reciente (la mensual frente a la "en vivo").
+- Errores tipados: `*StatusError` (con `RetryAfter`), `ErrRateLimit`, `ErrNotFound`, `ErrUnauthorized`, `IsRateLimit(err)` — funcionan con `errors.Is`/`errors.As` incluso tras agotar los reintentos.
+- `RetryPolicy` / `DefaultRetryPolicy()` — intentos, backoff, tope, jitter, si reintentar 429, `Retry-After` y hook `OnRetry`.
 - `ComputeIndicators(series []OHLCV) []IndicatorSet` — SMA, EMA, RSI, MACD, Bollinger, ATR, Estocástico, Williams %R, ADX, VWAP, OBV y señales derivadas.
 - `DetectGaps(series []OHLCV, factor float64) []Gap` — detecta huecos inusuales en una serie.
 - Helpers de parseo de JSON de Yahoo: `RawValue`, `GetPath`, `Field`, `AsFloat`, `AsInt64`, `AsString`, `EpochToDate`, `EpochToDateTimeNY`, `EpochToMidnight`, `DateStringToMidnight`, `ParseDateOnly`.
@@ -70,6 +76,32 @@ Todos los números que devuelve Yahoo en `quoteSummary`/`fundamentals-timeseries
 - No requiere API key ni autenticación de usuario: solo cookies de sesión + un token "crumb" público, obtenidos automáticamente en `NewClient`.
 - `rango` e `intervalo` son los mismos valores que acepta Yahoo Finance en su UI/API: `1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max` y `1m, 2m, 5m, 15m, 30m, 60m/1h, 1d, 5d, 1wk, 1mo, 3mo` respectivamente. Yahoo limita cuánto histórico entrega para los intervalos intradía.
 - Sirve igual para acciones (`AAPL`), ETFs (`SPY`) y criptomonedas (`BTC-USD`) — todas comparten el mismo endpoint `chart` en Yahoo Finance.
+- `ChartRange` ubica las barras en la zona horaria del exchange. En Windows sin Go instalado, importá `_ "time/tzdata"` en tu aplicación; si no, la zona cae en UTC. `gohoo` no lo importa para no agrandar los binarios.
+
+### Serie mensual por rango de fechas
+
+```go
+client, err := gohoo.NewClientWithOptions(
+	gohoo.WithLazyBootstrap(), // chart no necesita cookie+crumb
+	gohoo.WithRetryPolicy(gohoo.RetryPolicy{MaxAttempts: 1, RetryRateLimit: false}),
+)
+if err != nil {
+	log.Fatal(err)
+}
+res, err := client.ChartRange(ctx, "SPY", gohoo.ChartParams{
+	Start:    time.Date(2015, 1, 1, 0, 0, 0, 0, time.UTC),
+	Interval: "1mo",
+})
+switch {
+case gohoo.IsRateLimit(err):
+	// aplicar un cooldown propio
+case errors.Is(err, gohoo.ErrNotFound):
+	// símbolo inexistente o deslistado
+case err != nil:
+	log.Fatal(err)
+}
+dates, adj := res.Monthly()
+```
 
 ## Tests
 
