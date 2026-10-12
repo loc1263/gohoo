@@ -61,6 +61,8 @@ func main() {
 - `QuoteSummaryContext`, `FundamentalsTimeseriesContext`, `ChartContext`, `ChartSeriesContext` — same as above, cancellable through a `context.Context` (also during the retry backoff).
 - `(*Client) ChartRange(ctx, ticker string, p ChartParams) (*ChartResult, error)` — `chart` by relative range or by dates (`period1`/`period2`), typed as `float64` bars in the exchange's time zone, with Yahoo's `null`s handled.
 - `(*ChartResult) Monthly() (dates []time.Time, adj []float64)` — one adjusted close per calendar month; the most recent bar of a month wins (monthly bar vs. the "live" one).
+- `(*Client) Screen(ctx, p ScreenParams) (*ScreenResult, error)` — Yahoo's screener with a query builder (`Eq`, `Gt`, `Lt`, `Gte`, `Lte`, `Btwn`, `IsIn`, `And`, `Or`), paging and sorting; `ScreenPredefined(ctx, id, offset, size)` for Yahoo's saved screeners (`day_gainers`, `most_actives`, ...).
+- `(*Client) GetJSON` / `PostJSON(ctx, path, query[, body])` — authenticated request (cookie + crumb, retries, crumb refresh) to any Yahoo endpoint gohoo does not wrap yet.
 - Typed errors: `*StatusError` (with `RetryAfter`), `ErrRateLimit`, `ErrNotFound`, `ErrUnauthorized`, `IsRateLimit(err)` — they work with `errors.Is`/`errors.As` even after retries are exhausted.
 - `RetryPolicy` / `DefaultRetryPolicy()` — attempts, backoff, cap, jitter, whether to retry 429, `Retry-After`, `OnRetry` hook.
 - `ComputeIndicators(series []OHLCV) []IndicatorSet` — SMA, EMA, RSI, MACD, Bollinger Bands, ATR, Stochastic, Williams %R, ADX, VWAP, OBV and derived signals.

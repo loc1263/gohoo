@@ -18,6 +18,8 @@ import "github.com/loc1263/gohoo"
   - [Variantes con context](#variantes-con-context)
   - [ChartRange](#chartrange)
   - [ChartResult.Monthly](#chartresultmonthly)
+  - [GetJSON y PostJSON](#getjson-y-postjson)
+  - [Screen y ScreenPredefined](#screen-y-screenpredefined)
 - [Indicadores técnicos](#indicadores-técnicos)
 - [Detección de huecos](#detección-de-huecos)
 - [Tipos](#tipos)
@@ -207,6 +209,74 @@ Una observación por mes calendario, en orden cronológico: la fecha es el día 
 Usar la zona del exchange importa: la barra mensual de marzo de Tokio tiene timestamp `2024-02-29 15:00 UTC` (medianoche JST); en UTC caería en febrero.
 
 > **Windows:** si la máquina no tiene Go instalado, `time.LoadLocation` no encuentra la base de zonas y `Meta.Location` queda en UTC. La aplicación debe importar `_ "time/tzdata"`; `gohoo` no lo hace para no sumar ~450 KB a todos los binarios.
+
+### GetJSON y PostJSON
+
+```go
+func (c *Client) GetJSON(ctx context.Context, path string, q url.Values) ([]byte, error)
+func (c *Client) PostJSON(ctx context.Context, path string, q url.Values, body any) ([]byte, error)
+```
+
+Petición autenticada a cualquier endpoint de Yahoo Finance que gohoo todavía no cubre; devuelve el cuerpo tal cual. `path` es relativo al host del cliente (p. ej. `/v7/finance/quote`; ver `WithBaseURL`) o una URL absoluta, y `q` se une a la query que traiga `path`. El crumb vigente se agrega como `crumb` en cada intento (reemplaza cualquier `crumb` de `q`). Usa la misma sesión, `RetryPolicy`, cancelación y errores tipados que el resto de los métodos; ante un HTTP 401 renueva el crumb y reintenta. `PostJSON` serializa `body` con `encoding/json` (`Content-Type: application/json`); con `body == nil` no manda cuerpo.
+
+```go
+raw, err := client.GetJSON(ctx, "/v7/finance/quote", url.Values{"symbols": {"AAPL,MSFT"}})
+```
+
+### Screen y ScreenPredefined
+
+```go
+func (c *Client) Screen(ctx context.Context, p ScreenParams) (*ScreenResult, error)
+func (c *Client) ScreenPredefined(ctx context.Context, id string, offset, size int) (*ScreenResult, error)
+
+func Eq(field string, v any) Query
+func Gt(field string, v float64) Query // también Lt, Gte, Lte
+func Btwn(field string, lo, hi float64) Query
+func IsIn(field string, vs ...any) Query // Or de Eq
+func And(qs ...Query) Query
+func Or(qs ...Query) Query
+
+type ScreenParams struct {
+    Query     Query  // obligatoria
+    QuoteType string // "EQUITY" (por defecto), "ETF", "MUTUALFUND"...
+    Offset    int
+    Size      int    // 0 = 25; máximo ScreenMaxSize (250)
+    SortField string // "" = "ticker"
+    SortAsc   bool   // por defecto descendente
+}
+
+type ScreenResult struct {
+    Start, Count, Total int
+    Quotes              []ScreenQuote
+}
+
+type ScreenQuote struct {
+    Symbol, ShortName, LongName, QuoteType string
+    Exchange, FullExchangeName, Region     string
+    Currency                               string
+    MarketCap, Price                       float64 // Price = regularMarketPrice
+    Raw                                    map[string]any
+}
+```
+
+`Screen` consulta el screener de Yahoo (ver [ENDPOINTS.md](ENDPOINTS.md)); `ScreenPredefined`, uno de los screeners guardados de Yahoo (`day_gainers`, `day_losers`, `most_actives`, `undervalued_large_caps`, `aggressive_small_caps`, ...). Los números de `Raw` ya vienen sin el envoltorio `{raw, fmt}`.
+
+- Validación antes de la red: `Query` no vacía, `0 <= Size <= 250`, `Offset >= 0`, `id` no vacío.
+- Una query válida sin coincidencias devuelve un `ScreenResult` con `Total` 0, **sin error**.
+- `SortField` debe existir para el `QuoteType`: `intradaymarketcap` vale para `EQUITY` pero no para `ETF` (ahí, p. ej., `fundnetassets`).
+- Un error de Yahoo en el cuerpo (`finance.error`, p. ej. operador o campo inválido) se devuelve con su código y descripción; un id predefinido inexistente cumple `errors.Is(err, ErrNotFound)` y "too many requests", `errors.Is(err, ErrRateLimit)`. Una respuesta sin bloque de resultados es `ErrEmptyScreen`.
+- Para paginar: repetir con `Offset += Size` mientras `Offset < Total`.
+
+```go
+res, err := client.Screen(ctx, gohoo.ScreenParams{
+    Query:     gohoo.And(gohoo.Eq("region", "us"), gohoo.Gte("intradaymarketcap", 200e9)),
+    Size:      100,
+    SortField: "intradaymarketcap",
+})
+for _, q := range res.Quotes {
+    fmt.Println(q.Symbol, q.MarketCap, q.Raw["trailingPE"])
+}
+```
 
 ---
 
@@ -428,6 +498,7 @@ var (
     ErrRateLimit    error // HTTP 429, o chart.error "Too Many Requests" (ChartRange)
     ErrUnauthorized error // HTTP 401 que persistió tras renovar el crumb
     ErrNotFound     error // HTTP 404, o chart.error "Not Found" (ChartRange)
+    ErrEmptyScreen  error // respuesta del screener sin bloque de resultados
 )
 
 type StatusError struct {

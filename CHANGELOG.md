@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-10-12
+
+All changes are additive: no exported signature or default behavior changed
+(checked with `apidiff` against v0.2.1).
+
+### Added
+- `GetJSON` and `PostJSON`: authenticated requests (cookie + crumb, `RetryPolicy`, crumb refresh on HTTP 401, `context`) to any Yahoo Finance endpoint gohoo does not wrap yet. The current crumb is added on every attempt.
+- `Screen`: Yahoo's screener (`POST /v1/finance/screener`) with a query builder (`Eq`, `Gt`, `Lt`, `Gte`, `Lte`, `Btwn`, `IsIn`, `And`, `Or`), paging (`Offset`/`Size`, up to `ScreenMaxSize` = 250) and sorting. Returns a typed `ScreenResult` (`ScreenQuote` with the common fields plus `Raw`). A valid query with no matches returns an empty page, not an error.
+- `ScreenPredefined`: Yahoo's predefined screeners (`day_gainers`, `most_actives`, ...); an unknown id is `ErrNotFound`.
+- `ErrEmptyScreen` for a screener response without a result block. Screener errors in the body (`finance.error`) are reported with Yahoo's code and description; "too many requests" is `ErrRateLimit`.
+- Live tests against Yahoo behind the `live` build tag (`go test -tags live -run Live ./...`) and recorded screener fixtures in `testdata/`.
+
+### Changed
+- Internal only: the request/retry engine now supports any HTTP method and a JSON body; `doGet`/`doGetAuthed` delegate to it.
+
 ## [0.2.1] - 2026-10-08
 
 ### Fixed

@@ -1,11 +1,12 @@
 // Package gohoo es un cliente Go para los endpoints no oficiales de Yahoo
-// Finance (quoteSummary, fundamentals-timeseries y chart): maneja la
+// Finance (quoteSummary, fundamentals-timeseries, chart y screener): maneja la
 // autenticación por cookie+crumb y expone los datos crudos como
 // map[string]interface{}, más un helper de series OHLCV ya parseadas
 // (ChartSeries) para precios históricos de acciones, ETFs y criptomonedas.
 package gohoo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,30 +63,43 @@ func NewClient() (*Client, error) {
 }
 
 func (c *Client) doGet(ctx context.Context, rawURL string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	return c.do(ctx, http.MethodGet, rawURL, nil)
+}
+
+// do hace una request con el User-Agent del cliente. body, si no es nil, se
+// manda como JSON; se relee en cada llamada, así que do se puede reintentar.
+func (c *Client) do(ctx context.Context, method, rawURL string, body []byte) ([]byte, error) {
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, rd)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("Accept", "*/*")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode != 200 {
-		return body, &httpStatusError{
+		return respBody, &httpStatusError{
 			StatusCode: resp.StatusCode,
 			URL:        rawURL,
-			Body:       string(body[:min(len(body), 300)]),
+			Body:       string(respBody[:min(len(respBody), 300)]),
 			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
 		}
 	}
-	return body, nil
+	return respBody, nil
 }
 
 // doGetAuthed llama a buildURL() y hace el GET resultante, reintentando ante
@@ -98,6 +112,12 @@ func (c *Client) doGet(ctx context.Context, rawURL string) ([]byte, error) {
 // cambiar entre intentos. Si ctx termina, se devuelve de inmediato sin
 // consumir los intentos restantes.
 func (c *Client) doGetAuthed(ctx context.Context, buildURL func() string) ([]byte, error) {
+	return c.doAuthed(ctx, http.MethodGet, buildURL, nil)
+}
+
+// doAuthed es doGetAuthed para cualquier método; body (JSON) puede ser nil.
+// Es la única implementación de los reintentos y la renovación del crumb.
+func (c *Client) doAuthed(ctx context.Context, method string, buildURL func() string, body []byte) ([]byte, error) {
 	policy := c.retryPolicy()
 	var lastErr error
 	var lastStatus *httpStatusError
@@ -111,9 +131,9 @@ func (c *Client) doGetAuthed(ctx context.Context, buildURL func() string) ([]byt
 				return nil, fmt.Errorf("cancelado tras %d intentos: %w (último error: %w)", attempt, err, lastErr)
 			}
 		}
-		body, err := c.doGet(ctx, buildURL())
+		respBody, err := c.do(ctx, method, buildURL(), body)
 		if err == nil {
-			return body, nil
+			return respBody, nil
 		}
 		if ctx.Err() != nil {
 			return nil, err

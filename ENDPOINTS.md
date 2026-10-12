@@ -77,3 +77,30 @@ Forma de `chart.result[0]`:
 `ChartSeries` reindexa `dividends`/`splits` por fecha `"YYYY-MM-DD"` (vía `EpochToDate`) en vez de por epoch crudo, para que sean fáciles de cruzar con las fechas de `OHLCV.Time`.
 
 Para criptomonedas e índices, `events` normalmente viene vacío (no hay dividendos/splits que reportar), por lo que los mapas resultantes quedan vacíos — no es un error ni una respuesta incompleta.
+
+## 4. `screener` — búsqueda de instrumentos por criterios
+
+```
+POST https://query2.finance.yahoo.com/v1/finance/screener?corsDomain=finance.yahoo.com&formatted=false&lang=en-US&region=US&crumb={crumb}
+GET  https://query2.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds={id}&count={n}&offset={n}&formatted=false&crumb={crumb}
+```
+
+Expuesto en gohoo como [`Client.Screen`](API.md#screen-y-screenpredefined) y `Client.ScreenPredefined`. Requiere cookie + crumb.
+
+Cuerpo del POST:
+
+```json
+{"offset": 0, "size": 25, "sortField": "intradaymarketcap", "sortType": "DESC", "quoteType": "EQUITY",
+ "userId": "", "userIdType": "guid",
+ "query": {"operator": "AND", "operands": [
+   {"operator": "EQ", "operands": ["region", "us"]},
+   {"operator": "GT", "operands": ["intradaymarketcap", 200000000000]}]}}
+```
+
+- Operadores que acepta Yahoo (sin distinguir mayúsculas): `eq`, `gt`, `gte`, `lt`, `lte`, `btwn`, `and`, `or` (y otros internos). No existe `is-in`: se arma con `or` de `eq`.
+- Campos útiles para `EQUITY`: `region` (`us`, `cl`, `jp`, `hk`, ...), `exchange` (`NMS`, `NYQ`, `SGO`, ...), `sector`, `industry`, `intradaymarketcap`, `intradayprice`, `percentchange`, `dayvolume`, `peratio.lasttwelvemonths`. Para `ETF`: `fundnetassets`, `categoryname`, etc. `sortField` debe ser un campo válido del `quoteType` (si se omite, Yahoo usa `intradaymarketcap`, que no existe para ETF → 400).
+- `size` máximo 250 por página.
+
+Respuesta: `finance.result[0]` con `start`, `count`, `total` y `quotes`. Con `formatted=false` los números vienen planos: `symbol`, `shortName`, `longName`, `quoteType`, `exchange`, `fullExchangeName`, `region`, `currency`, `marketCap`, `regularMarketPrice`, `trailingPE`, `forwardPE`, `dividendYield` (**ya en porcentaje**, a diferencia de `quoteSummary`), `fiftyTwoWeekHigh`/`Low`, promedios móviles, etc. El predefinido además trae `title`, `description` y `criteriaMeta`.
+
+Errores: `finance.result: null` + `finance.error {code, description}` con HTTP 400 (operador o campo inválido), 401 (`Invalid Crumb`) o 404 (`Not Found`, predefinido inexistente). Una query válida sin coincidencias responde 200 con `total: 0` y `quotes: []`.

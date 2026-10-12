@@ -41,6 +41,27 @@ func ExampleClient_ChartSeries() {
 	fmt.Println(len(series), len(dividends), len(splits))
 }
 
+// List the largest US companies (market cap >= 200 billion USD) with
+// Yahoo's screener. Requires network access, so it is compiled but not run.
+func ExampleClient_Screen() {
+	client, err := gohoo.NewClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+	res, err := client.Screen(context.Background(), gohoo.ScreenParams{
+		Query:     gohoo.And(gohoo.Eq("region", "us"), gohoo.Gte("intradaymarketcap", 200e9)),
+		Size:      50,
+		SortField: "intradaymarketcap",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(res.Total)
+	for _, q := range res.Quotes {
+		fmt.Println(q.Symbol, q.MarketCap, q.Raw["trailingPE"])
+	}
+}
+
 func ExampleField() {
 	summary := map[string]interface{}{
 		"trailingPE": map[string]interface{}{"raw": 28.5, "fmt": "28.50"},
