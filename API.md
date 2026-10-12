@@ -72,11 +72,13 @@ if err != nil {
 
 ### QuoteSummary
 
+> **Deprecated:** usar `QuoteSummaryContext` (cancelable) o [Info](#info-y-flatteninfo) para un mapa plano.
+
 ```go
-func (c *Client) QuoteSummary(ticker string, modules []string) (map[string]interface{}, error)
+func (c *Client) QuoteSummary(ticker string, modules []string) (map[string]any, error)
 ```
 
-Llama a `v10/finance/quoteSummary/{ticker}` con los módulos pedidos (join por `,`) y el crumb de la sesión. Los módulos de `quoteSummary.result` se fusionan en un único `map[string]interface{}` (si Yahoo devuelve más de un resultado, las claves del último sobrescriben a las anteriores).
+Llama a `v10/finance/quoteSummary/{ticker}` con los módulos pedidos (join por `,`) y el crumb de la sesión. Los módulos de `quoteSummary.result` se fusionan en un único `map[string]any` (si Yahoo devuelve más de un resultado, las claves del último sobrescriben a las anteriores).
 
 Errores:
 - Error de red/HTTP de `doGet`.
@@ -92,13 +94,15 @@ data, err := client.QuoteSummary("AAPL", []string{"price", "summaryDetail"})
 if err != nil {
     log.Fatal(err)
 }
-price := gohoo.Field(data["price"].(map[string]interface{}), "regularMarketPrice")
+price := gohoo.Field(data["price"].(map[string]any), "regularMarketPrice")
 ```
 
 ### FundamentalsTimeseries
 
+> **Deprecated:** usar `FundamentalsTimeseriesContext` (cancelable) y [TimeseriesPoints](#timeseriespoints-y-trailingpeg).
+
 ```go
-func (c *Client) FundamentalsTimeseries(ticker string, types []string) (map[string]interface{}, error)
+func (c *Client) FundamentalsTimeseries(ticker string, types []string) (map[string]any, error)
 ```
 
 Llama a `ws/fundamentals-timeseries/v1/finance/timeseries/{ticker}` pidiendo los `type` indicados, con una ventana fija de `period1`/`period2` de **6 años hacia atrás desde ahora** hasta hoy (no configurable). Devuelve el JSON crudo de Yahoo sin aplanar, ya que su forma varía según los `type` pedidos.
@@ -111,8 +115,10 @@ data, err := client.FundamentalsTimeseries("AAPL", []string{"annualTotalRevenue"
 
 ### Chart
 
+> **Deprecated:** usar [ChartRange](#chartrange) (resultado tipado, cancelable); para la respuesta cruda, [GetJSON](#getjson-y-postjson). `ChartContext` y `FirstResult` también están deprecados.
+
 ```go
-func (c *Client) Chart(ticker, rango, intervalo string) (map[string]interface{}, error)
+func (c *Client) Chart(ticker, rango, intervalo string) (map[string]any, error)
 ```
 
 Llama a `v8/finance/chart/{ticker}` con `range`, `interval` y `events=div,splits`, devolviendo el JSON crudo de Yahoo (OHLCV + metadata + eventos). Para la mayoría de los usos conviene `ChartSeries`, que ya parsea esta respuesta.
@@ -178,9 +184,9 @@ client, err := gohoo.NewClientWithOptions(
 ### Variantes con context
 
 ```go
-func (c *Client) QuoteSummaryContext(ctx context.Context, ticker string, modules []string) (map[string]interface{}, error)
-func (c *Client) FundamentalsTimeseriesContext(ctx context.Context, ticker string, types []string) (map[string]interface{}, error)
-func (c *Client) ChartContext(ctx context.Context, ticker, rango, intervalo string) (map[string]interface{}, error)
+func (c *Client) QuoteSummaryContext(ctx context.Context, ticker string, modules []string) (map[string]any, error)
+func (c *Client) FundamentalsTimeseriesContext(ctx context.Context, ticker string, types []string) (map[string]any, error)
+func (c *Client) ChartContext(ctx context.Context, ticker, rango, intervalo string) (map[string]any, error)
 func (c *Client) ChartSeriesContext(ctx context.Context, ticker, rango, intervalo string) ([]OHLCV, map[string]float64, map[string]float64, error)
 ```
 
@@ -192,7 +198,7 @@ Igual que los métodos sin sufijo (que delegan en estas con `context.Background(
 func (c *Client) ChartRange(ctx context.Context, ticker string, p ChartParams) (*ChartResult, error)
 ```
 
-Llama a `v8/finance/chart/{ticker}` por rango relativo (`p.Range`) o por fechas (`p.Start`/`p.End` → `period1`/`period2`) y devuelve un resultado tipado ([ChartResult](#chartparams-chartresult-chartmeta-bar)) con `float64` en lugar de `interface{}` y las barras en la zona horaria del exchange.
+Llama a `v8/finance/chart/{ticker}` por rango relativo (`p.Range`) o por fechas (`p.Start`/`p.End` → `period1`/`period2`) y devuelve un resultado tipado ([ChartResult](#chartparams-chartresult-chartmeta-bar)) con `float64` en lugar de `any` y las barras en la zona horaria del exchange.
 
 Validación (antes de tocar la red): `Range` y `Start` son excluyentes; hace falta uno de los dos; `End` requiere `Start` y debe ser posterior. `End` cero = ahora; `Interval` vacío = `1d`; `Events` vacío = `div,splits`.
 
@@ -503,14 +509,14 @@ Devuelve los huecos entre barras consecutivas mayores a `factor` veces el interv
 ```go
 type OHLCV struct {
     Time                                      time.Time
-    Open, High, Low, Close, AdjClose, Volume interface{}
+    Open, High, Low, Close, AdjClose, Volume any
 }
 ```
 
-Una barra de precio/volumen de `chart`. `Time` es siempre UTC (el timestamp Unix de Yahoo convertido con `time.Unix(...).UTC()`). Los campos numéricos son `interface{}` (normalmente `float64`, y `Volume` puede venir como entero) porque Yahoo puede devolver `null` para velas sin datos (mercado cerrado, activo recién listado, etc.); usar [`AsFloat`](#asfloat) para convertirlos de forma segura.
+Una barra de precio/volumen de `chart`. `Time` es siempre UTC (el timestamp Unix de Yahoo convertido con `time.Unix(...).UTC()`). Los campos numéricos son `any` (normalmente `float64`, y `Volume` puede venir como entero) porque Yahoo puede devolver `null` para velas sin datos (mercado cerrado, activo recién listado, etc.); usar [`AsFloat`](#asfloat) para convertirlos de forma segura.
 
 ```go
-func FirstResult(chart map[string]interface{}) (map[string]interface{}, bool)
+func FirstResult(chart map[string]any) (map[string]any, bool)
 ```
 
 Extrae `chart["chart"]["result"][0]` de la respuesta cruda de `Chart`, devolviendo `false` si la forma no coincide con lo esperado. Lo usa `ChartSeries` internamente; exportada por si se necesita trabajar con la respuesta cruda de `Chart` directamente.
@@ -602,18 +608,18 @@ Casi todos los valores numéricos que devuelve Yahoo en `quoteSummary`/`fundamen
 ### RawValue
 
 ```go
-func RawValue(v interface{}) interface{}
+func RawValue(v any) any
 ```
 
-Si `v` es un `map[string]interface{}` con clave `"raw"`, devuelve ese valor. Si es un mapa sin `"raw"`, devuelve `nil`. Si `v` ya es un escalar (string, bool, número), lo devuelve tal cual. Si `v` es `nil`, devuelve `nil`.
+Si `v` es un `map[string]any` con clave `"raw"`, devuelve ese valor. Si es un mapa sin `"raw"`, devuelve `nil`. Si `v` ya es un escalar (string, bool, número), lo devuelve tal cual. Si `v` es `nil`, devuelve `nil`.
 
 ### GetPath
 
 ```go
-func GetPath(m map[string]interface{}, keys ...string) interface{}
+func GetPath(m map[string]any, keys ...string) any
 ```
 
-Navega un árbol de `map[string]interface{}` siguiendo `keys` en orden, devolviendo `nil` en cuanto una clave no existe o el valor intermedio deja de ser un mapa. Útil para bajar varios niveles sin encadenar type-assertions manuales.
+Navega un árbol de `map[string]any` siguiendo `keys` en orden, devolviendo `nil` en cuanto una clave no existe o el valor intermedio deja de ser un mapa. Útil para bajar varios niveles sin encadenar type-assertions manuales.
 
 ```go
 peRatio := gohoo.GetPath(data, "summaryDetail", "trailingPE")
@@ -622,15 +628,15 @@ peRatio := gohoo.GetPath(data, "summaryDetail", "trailingPE")
 ### Field
 
 ```go
-func Field(m map[string]interface{}, key string) interface{}
+func Field(m map[string]any, key string) any
 ```
 
-Atajo equivalente a `RawValue(m[key])`, con `nil`-check sobre `m`. Pensado para leer un campo de un módulo ya desenvuelto (p. ej. `data["price"].(map[string]interface{})`).
+Atajo equivalente a `RawValue(m[key])`, con `nil`-check sobre `m`. Pensado para leer un campo de un módulo ya desenvuelto (p. ej. `data["price"].(map[string]any)`).
 
 ### AsFloat
 
 ```go
-func AsFloat(v interface{}) (float64, bool)
+func AsFloat(v any) (float64, bool)
 ```
 
 Convierte `float64`, `int`, `int64` o `string` (parseable como número) a `float64`. Devuelve `(0, false)` para cualquier otro tipo o string no numérico.
@@ -638,7 +644,7 @@ Convierte `float64`, `int`, `int64` o `string` (parseable como número) a `float
 ### AsInt64
 
 ```go
-func AsInt64(v interface{}) (int64, bool)
+func AsInt64(v any) (int64, bool)
 ```
 
 Igual que `AsFloat` pero trunca a `int64` (vía conversión directa de `float64` a `int64`, sin redondeo).
@@ -646,7 +652,7 @@ Igual que `AsFloat` pero trunca a `int64` (vía conversión directa de `float64`
 ### AsString
 
 ```go
-func AsString(v interface{}) string
+func AsString(v any) string
 ```
 
 Convierte cualquier valor a su representación en string: `nil` → `""`, `string` se devuelve igual, `float64` se formatea sin notación científica (`strconv.FormatFloat(t, 'f', -1, 64)`), `bool` vía `strconv.FormatBool`, y cualquier otro tipo vía `fmt.Sprintf("%v", t)`.
@@ -660,7 +666,7 @@ Yahoo reporta la mayoría de las fechas como timestamps Unix (segundos, UTC).
 ### EpochToDate
 
 ```go
-func EpochToDate(v interface{}) string
+func EpochToDate(v any) string
 ```
 
 Convierte un timestamp Unix a `"YYYY-MM-DD"` en UTC. Devuelve `""` si `v` no se puede convertir a número con `AsFloat`.
@@ -668,7 +674,7 @@ Convierte un timestamp Unix a `"YYYY-MM-DD"` en UTC. Devuelve `""` si `v` no se 
 ### EpochToDateTimeNY
 
 ```go
-func EpochToDateTimeNY(v interface{}, loc *time.Location) string
+func EpochToDateTimeNY(v any, loc *time.Location) string
 ```
 
 Convierte un timestamp Unix a `"YYYY-MM-DD HH:MM:SS-07:00"` en la zona horaria `loc` (pensado para `America/New_York`, zona de las fechas de resultados/earnings). Si `loc` es `nil`, usa UTC. Devuelve `""` si `v` no es convertible.
@@ -681,7 +687,7 @@ fecha := gohoo.EpochToDateTimeNY(earningsDate, ny)
 ### EpochToMidnight
 
 ```go
-func EpochToMidnight(v interface{}) string
+func EpochToMidnight(v any) string
 ```
 
 Da formato `"YYYY-MM-DD 00:00:00"` a un timestamp Unix (siempre medianoche), útil para columnas de período de estados financieros donde solo importa la fecha. Internamente usa `EpochToDate` + sufijo fijo.
@@ -705,6 +711,8 @@ Parsea un string `"YYYY-MM-DD"` (layout `"2006-01-02"`) a `time.Time`.
 ---
 
 ## Manejo de errores
+
+Los textos de error son para personas y no forman parte de la API: para clasificar un error se usan `errors.Is` y `errors.As`. Los mensajes que arma gohoo empiezan con `gohoo:`, salvo el resumen de reintentos (`agotados N intentos: ...`), que conserva su formato por compatibilidad.
 
 Todas las funciones del `Client` devuelven errores envueltos con contexto (`fmt.Errorf("...: %w", err)`), así que se pueden inspeccionar con `errors.Is`/`errors.As` si el error subyacente lo soporta (p. ej. errores de `net/http`). Casos típicos a manejar:
 

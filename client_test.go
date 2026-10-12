@@ -12,7 +12,7 @@ func TestQuoteSummaryMergesModules(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v10/finance/quoteSummary/AAPL", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"quoteSummary": {
 				"result": [
 					{"price": {"regularMarketPrice": {"raw": 150.23, "fmt": "150.23"}}},
@@ -30,7 +30,7 @@ func TestQuoteSummaryMergesModules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QuoteSummary error: %v", err)
 	}
-	price, ok := data["price"].(map[string]interface{})
+	price, ok := data["price"].(map[string]any)
 	if !ok {
 		t.Fatalf("data[price] missing or wrong type: %v", data["price"])
 	}
@@ -46,7 +46,7 @@ func TestQuoteSummaryBusinessError(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v10/finance/quoteSummary/FAKE", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"quoteSummary": {
 				"result": [],
 				"error": {"code": "Not Found", "description": "No data found, symbol may be delisted"}
@@ -68,7 +68,7 @@ func TestQuoteSummaryEmptyResultIsNotError(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v10/finance/quoteSummary/AAPL", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"quoteSummary": {"result": [], "error": null}}`))
+		_, _ = w.Write([]byte(`{"quoteSummary": {"result": [], "error": null}}`))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -87,7 +87,7 @@ func TestFundamentalsTimeseries(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws/fundamentals-timeseries/v1/finance/timeseries/AAPL", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"timeseries": {"result": [{"meta": {"symbol": ["AAPL"]}}]}}`))
+		_, _ = w.Write([]byte(`{"timeseries": {"result": [{"meta": {"symbol": ["AAPL"]}}]}}`))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -112,7 +112,7 @@ func TestChart(t *testing.T) {
 			t.Errorf("interval query = %q, want 1d", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(chartFixture))
+		_, _ = w.Write([]byte(chartFixture))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -131,7 +131,7 @@ func TestDoGetHTTPError(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v8/finance/chart/MISSING", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("symbol not found"))
+		_, _ = w.Write([]byte("symbol not found"))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -152,11 +152,11 @@ func TestDoGetAuthedRetriesOn429ThenSucceeds(t *testing.T) {
 	mux.HandleFunc("/v8/finance/chart/AAPL", func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) <= 2 {
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte("rate limited"))
+			_, _ = w.Write([]byte("rate limited"))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(chartFixture))
+		_, _ = w.Write([]byte(chartFixture))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -180,7 +180,7 @@ func TestDoGetAuthedGivesUpAfterMaxAttempts(t *testing.T) {
 	mux.HandleFunc("/v8/finance/chart/AAPL", func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte("down"))
+		_, _ = w.Write([]byte("down"))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -198,7 +198,7 @@ func TestQuoteSummaryInvalidJSON(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v10/finance/quoteSummary/AAPL", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("not json"))
+		_, _ = w.Write([]byte("not json"))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

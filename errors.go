@@ -89,9 +89,9 @@ func chartAPIError(ticker, code, description string) error {
 	lower := strings.ToLower(code + " " + description)
 	switch {
 	case strings.Contains(lower, "too many"):
-		return fmt.Errorf("chart de %s: %s: %w", ticker, msg, ErrRateLimit)
+		return fmt.Errorf("gohoo: chart de %s: %s: %w", ticker, msg, ErrRateLimit)
 	case strings.EqualFold(code, "Not Found") || strings.Contains(lower, "no data found"):
-		return fmt.Errorf("chart de %s: %s: %w", ticker, msg, ErrNotFound)
+		return fmt.Errorf("gohoo: chart de %s: %s: %w", ticker, msg, ErrNotFound)
 	}
-	return fmt.Errorf("chart de %s devolvió error: %s", ticker, msg)
+	return fmt.Errorf("gohoo: chart de %s devolvió error: %s", ticker, msg)
 }

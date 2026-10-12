@@ -1,8 +1,3 @@
-// Package gohoo es un cliente Go para los endpoints no oficiales de Yahoo
-// Finance (quoteSummary, fundamentals-timeseries, chart y screener): maneja la
-// autenticación por cookie+crumb y expone los datos crudos como
-// map[string]interface{}, más un helper de series OHLCV ya parseadas
-// (ChartSeries) para precios históricos de acciones, ETFs y criptomonedas.
 package gohoo
 
 import (
@@ -108,7 +103,7 @@ func (c *Client) roundTrip(ctx context.Context, method, rawURL string, body []by
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, resp.StatusCode, err
@@ -195,7 +190,7 @@ func (c *Client) doAuthedCheck(ctx context.Context, method string, buildURL func
 			switch {
 			case lastStatus.StatusCode == http.StatusUnauthorized:
 				if bootErr := c.bootstrap(ctx); bootErr != nil {
-					return nil, fmt.Errorf("re-autenticación tras HTTP 401 falló: %w", bootErr)
+					return nil, fmt.Errorf("gohoo: re-autenticación tras HTTP 401 falló: %w", bootErr)
 				}
 			case lastStatus.StatusCode == http.StatusTooManyRequests && !policy.RetryRateLimit:
 				return nil, err
@@ -251,15 +246,17 @@ func (c *Client) ensureCrumb(ctx context.Context) error {
 }
 
 // QuoteSummary llama a v10/finance/quoteSummary con los módulos solicitados y
-// devuelve el primer resultado como un árbol genérico de interface{}.
-func (c *Client) QuoteSummary(ticker string, modules []string) (map[string]interface{}, error) {
+// devuelve el primer resultado como un árbol genérico de map[string]any.
+//
+// Deprecated: usar QuoteSummaryContext (cancelable), o Info para un mapa plano.
+func (c *Client) QuoteSummary(ticker string, modules []string) (map[string]any, error) {
 	return c.QuoteSummaryContext(context.Background(), ticker, modules)
 }
 
 // QuoteSummaryContext es QuoteSummary con cancelación y plazos por ctx.
-func (c *Client) QuoteSummaryContext(ctx context.Context, ticker string, modules []string) (map[string]interface{}, error) {
+func (c *Client) QuoteSummaryContext(ctx context.Context, ticker string, modules []string) (map[string]any, error) {
 	if err := c.ensureCrumb(ctx); err != nil {
-		return nil, fmt.Errorf("quoteSummary de %s: %w", ticker, err)
+		return nil, fmt.Errorf("gohoo: quoteSummary de %s: %w", ticker, err)
 	}
 	body, err := c.doGetAuthed(ctx, func() string {
 		return fmt.Sprintf("%s/v10/finance/quoteSummary/%s?modules=%s&crumb=%s",
@@ -270,20 +267,20 @@ func (c *Client) QuoteSummaryContext(ctx context.Context, ticker string, modules
 	}
 	var parsed struct {
 		QuoteSummary struct {
-			Result []map[string]interface{} `json:"result"`
-			Error  interface{}              `json:"error"`
+			Result []map[string]any `json:"result"`
+			Error  any              `json:"error"`
 		} `json:"quoteSummary"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("no se pudo parsear quoteSummary de %s: %w", ticker, err)
+		return nil, fmt.Errorf("gohoo: no se pudo parsear quoteSummary de %s: %w", ticker, err)
 	}
 	if parsed.QuoteSummary.Error != nil {
-		return nil, fmt.Errorf("quoteSummary de %s devolvió error: %v", ticker, parsed.QuoteSummary.Error)
+		return nil, fmt.Errorf("gohoo: quoteSummary de %s devolvió error: %v", ticker, parsed.QuoteSummary.Error)
 	}
 	if len(parsed.QuoteSummary.Result) == 0 {
-		return map[string]interface{}{}, nil
+		return map[string]any{}, nil
 	}
-	merged := map[string]interface{}{}
+	merged := map[string]any{}
 	for _, r := range parsed.QuoteSummary.Result {
 		for k, v := range r {
 			merged[k] = v
@@ -294,13 +291,15 @@ func (c *Client) QuoteSummaryContext(ctx context.Context, ticker string, modules
 
 // FundamentalsTimeseries llama al endpoint de fundamentals-timeseries para un
 // conjunto de "type" (p.ej. annualTotalRevenue, quarterlyNetIncome, ...).
-func (c *Client) FundamentalsTimeseries(ticker string, types []string) (map[string]interface{}, error) {
+//
+// Deprecated: usar FundamentalsTimeseriesContext (cancelable) y TimeseriesPoints.
+func (c *Client) FundamentalsTimeseries(ticker string, types []string) (map[string]any, error) {
 	return c.FundamentalsTimeseriesContext(context.Background(), ticker, types)
 }
 
 // FundamentalsTimeseriesContext es FundamentalsTimeseries con cancelación y
 // plazos por ctx.
-func (c *Client) FundamentalsTimeseriesContext(ctx context.Context, ticker string, types []string) (map[string]interface{}, error) {
+func (c *Client) FundamentalsTimeseriesContext(ctx context.Context, ticker string, types []string) (map[string]any, error) {
 	period2 := time.Now().Unix()
 	period1 := time.Now().AddDate(-6, 0, 0).Unix()
 	body, err := c.doGetAuthed(ctx, func() string {
@@ -310,21 +309,26 @@ func (c *Client) FundamentalsTimeseriesContext(ctx context.Context, ticker strin
 	if err != nil {
 		return nil, err
 	}
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("no se pudo parsear fundamentals-timeseries de %s: %w", ticker, err)
+		return nil, fmt.Errorf("gohoo: no se pudo parsear fundamentals-timeseries de %s: %w", ticker, err)
 	}
 	return parsed, nil
 }
 
 // Chart llama al endpoint v8/finance/chart con el rango e intervalos pedidos,
 // incluyendo dividendos y splits.
-func (c *Client) Chart(ticker, rang, interval string) (map[string]interface{}, error) {
+//
+// Deprecated: usar ChartRange (resultado tipado, cancelable); para la
+// respuesta cruda, GetJSON.
+func (c *Client) Chart(ticker, rang, interval string) (map[string]any, error) {
 	return c.ChartContext(context.Background(), ticker, rang, interval)
 }
 
 // ChartContext es Chart con cancelación y plazos por ctx.
-func (c *Client) ChartContext(ctx context.Context, ticker, rang, interval string) (map[string]interface{}, error) {
+//
+// Deprecated: usar ChartRange (resultado tipado); para la respuesta cruda, GetJSON.
+func (c *Client) ChartContext(ctx context.Context, ticker, rang, interval string) (map[string]any, error) {
 	body, err := c.doGetAuthed(ctx, func() string {
 		return fmt.Sprintf("%s/v8/finance/chart/%s?range=%s&interval=%s&events=div,splits",
 			c.baseURL(), url.PathEscape(ticker), url.QueryEscape(rang), url.QueryEscape(interval))
@@ -332,9 +336,9 @@ func (c *Client) ChartContext(ctx context.Context, ticker, rang, interval string
 	if err != nil {
 		return nil, err
 	}
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("no se pudo parsear chart de %s: %w", ticker, err)
+		return nil, fmt.Errorf("gohoo: no se pudo parsear chart de %s: %w", ticker, err)
 	}
 	return parsed, nil
 }

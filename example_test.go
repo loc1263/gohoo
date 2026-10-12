@@ -15,16 +15,16 @@ import (
 
 // Fetch the current price of a ticker. Requires network access, so it is
 // compiled but not run as a test.
-func ExampleClient_QuoteSummary() {
+func ExampleClient_QuoteSummaryContext() {
 	client, err := gohoo.NewClient()
 	if err != nil {
 		log.Fatal(err)
 	}
-	data, err := client.QuoteSummary("AAPL", []string{"price"})
+	data, err := client.QuoteSummaryContext(context.Background(), "AAPL", []string{"price"})
 	if err != nil {
 		log.Fatal(err)
 	}
-	price, _ := data["price"].(map[string]interface{})
+	price, _ := data["price"].(map[string]any)
 	fmt.Println(gohoo.Field(price, "regularMarketPrice"))
 }
 
@@ -82,17 +82,17 @@ func ExampleComputeIndicatorsBars() {
 }
 
 func ExampleField() {
-	summary := map[string]interface{}{
-		"trailingPE": map[string]interface{}{"raw": 28.5, "fmt": "28.50"},
+	summary := map[string]any{
+		"trailingPE": map[string]any{"raw": 28.5, "fmt": "28.50"},
 	}
 	fmt.Println(gohoo.Field(summary, "trailingPE"))
 	// Output: 28.5
 }
 
 func ExampleGetPath() {
-	data := map[string]interface{}{
-		"summaryDetail": map[string]interface{}{
-			"trailingPE": map[string]interface{}{"raw": 28.5},
+	data := map[string]any{
+		"summaryDetail": map[string]any{
+			"trailingPE": map[string]any{"raw": 28.5},
 		},
 	}
 	fmt.Println(gohoo.RawValue(gohoo.GetPath(data, "summaryDetail", "trailingPE")))
@@ -136,7 +136,7 @@ func ExampleDetectGaps() {
 func ExampleChartResult_Monthly() {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Monthly bars for Feb and Mar 2024 plus the "live" bar of March 15.
-		w.Write([]byte(`{"chart":{"result":[{
+		_, _ = w.Write([]byte(`{"chart":{"result":[{
 			"meta":{"symbol":"SPY","currency":"USD","exchangeTimezoneName":"America/New_York"},
 			"timestamp":[1706763600,1709269200,1710532800],
 			"indicators":{"quote":[{"close":[508.1,512.4,509.8]}],"adjclose":[{"adjclose":[500.0,505.0,503.2]}]}

@@ -8,10 +8,10 @@ import (
 )
 
 func TestFirstResult(t *testing.T) {
-	chart := map[string]interface{}{
-		"chart": map[string]interface{}{
-			"result": []interface{}{
-				map[string]interface{}{"timestamp": []interface{}{1.0}},
+	chart := map[string]any{
+		"chart": map[string]any{
+			"result": []any{
+				map[string]any{"timestamp": []any{1.0}},
 			},
 		},
 	}
@@ -23,10 +23,10 @@ func TestFirstResult(t *testing.T) {
 		t.Error("FirstResult did not return expected result map")
 	}
 
-	if _, ok := FirstResult(map[string]interface{}{}); ok {
+	if _, ok := FirstResult(map[string]any{}); ok {
 		t.Error("FirstResult on empty map ok = true, want false")
 	}
-	empty := map[string]interface{}{"chart": map[string]interface{}{"result": []interface{}{}}}
+	empty := map[string]any{"chart": map[string]any{"result": []any{}}}
 	if _, ok := FirstResult(empty); ok {
 		t.Error("FirstResult with empty result slice ok = true, want false")
 	}
@@ -69,7 +69,7 @@ func TestChartSeries(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v8/finance/chart/AAPL", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(chartFixture))
+		_, _ = w.Write([]byte(chartFixture))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -109,7 +109,7 @@ func TestChartSeriesEmptyResult(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v8/finance/chart/FAKE", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"chart": {"result": [], "error": null}}`))
+		_, _ = w.Write([]byte(`{"chart": {"result": [], "error": null}}`))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

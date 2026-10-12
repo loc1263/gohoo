@@ -76,8 +76,8 @@ type chartResponse struct {
 				InstrumentType       string `json:"instrumentType"`
 				ExchangeTimezoneName string `json:"exchangeTimezoneName"`
 			} `json:"meta"`
-			Timestamp  []*int64               `json:"timestamp"`
-			Events     map[string]interface{} `json:"events"`
+			Timestamp  []*int64       `json:"timestamp"`
+			Events     map[string]any `json:"events"`
 			Indicators struct {
 				Quote []struct {
 					Open   []*float64 `json:"open"`
@@ -107,7 +107,7 @@ type chartResponse struct {
 func (c *Client) ChartRange(ctx context.Context, ticker string, p ChartParams) (*ChartResult, error) {
 	query, err := p.query(time.Now())
 	if err != nil {
-		return nil, fmt.Errorf("chart de %s: %w", ticker, err)
+		return nil, fmt.Errorf("gohoo: chart de %s: %w", ticker, err)
 	}
 	body, err := c.doAuthedCheck(ctx, http.MethodGet, func() string {
 		return fmt.Sprintf("%s/v8/finance/chart/%s?%s", c.baseURL(), url.PathEscape(ticker), query)
@@ -129,7 +129,7 @@ func (c *Client) ChartRange(ctx context.Context, ticker string, p ChartParams) (
 	}
 	parsed, ok := parseChartBody(body)
 	if !ok {
-		return nil, fmt.Errorf("no se pudo parsear chart de %s", ticker)
+		return nil, fmt.Errorf("gohoo: no se pudo parsear chart de %s", ticker)
 	}
 	return parsed.toResult(ticker)
 }
@@ -184,7 +184,7 @@ func (r *chartResponse) toResult(ticker string) (*ChartResult, error) {
 		return nil, chartAPIError(ticker, e.Code, e.Description)
 	}
 	if len(r.Chart.Result) == 0 {
-		return nil, fmt.Errorf("respuesta de chart vacía para %s: %w", ticker, ErrNotFound)
+		return nil, fmt.Errorf("gohoo: respuesta de chart vacía para %s: %w", ticker, ErrNotFound)
 	}
 	res := r.Chart.Result[0]
 

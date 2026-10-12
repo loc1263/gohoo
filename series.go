@@ -11,21 +11,24 @@ import (
 // tiempo completa (la granularidad depende del intervalo pedido).
 type OHLCV struct {
 	Time                                     time.Time
-	Open, High, Low, Close, AdjClose, Volume interface{}
+	Open, High, Low, Close, AdjClose, Volume any
 }
 
 // FirstResult devuelve el primer elemento de chart.result, tal como lo
 // entrega el endpoint v8/finance/chart.
-func FirstResult(chart map[string]interface{}) (map[string]interface{}, bool) {
-	c, ok := chart["chart"].(map[string]interface{})
+//
+// Deprecated: es para la respuesta cruda de Chart; ChartRange ya devuelve el
+// resultado tipado.
+func FirstResult(chart map[string]any) (map[string]any, bool) {
+	c, ok := chart["chart"].(map[string]any)
 	if !ok {
 		return nil, false
 	}
-	results, ok := c["result"].([]interface{})
+	results, ok := c["result"].([]any)
 	if !ok || len(results) == 0 {
 		return nil, false
 	}
-	r, ok := results[0].(map[string]interface{})
+	r, ok := results[0].(map[string]any)
 	return r, ok
 }
 
@@ -46,24 +49,24 @@ func (c *Client) ChartSeriesContext(ctx context.Context, ticker, rang, interval 
 	}
 	result, ok := FirstResult(chart)
 	if !ok {
-		return nil, nil, nil, fmt.Errorf("respuesta de chart vacía o inválida para %s", ticker)
+		return nil, nil, nil, fmt.Errorf("gohoo: respuesta de chart vacía o inválida para %s", ticker)
 	}
 
-	timestamps, _ := result["timestamp"].([]interface{})
-	indicators, _ := result["indicators"].(map[string]interface{})
+	timestamps, _ := result["timestamp"].([]any)
+	indicators, _ := result["indicators"].(map[string]any)
 	if indicators == nil || len(timestamps) == 0 {
-		return nil, nil, nil, fmt.Errorf("respuesta de chart vacía o inválida para %s", ticker)
+		return nil, nil, nil, fmt.Errorf("gohoo: respuesta de chart vacía o inválida para %s", ticker)
 	}
-	quoteArr, _ := indicators["quote"].([]interface{})
+	quoteArr, _ := indicators["quote"].([]any)
 	if len(quoteArr) == 0 {
-		return nil, nil, nil, fmt.Errorf("respuesta de chart vacía o inválida para %s", ticker)
+		return nil, nil, nil, fmt.Errorf("gohoo: respuesta de chart vacía o inválida para %s", ticker)
 	}
-	quote, _ := quoteArr[0].(map[string]interface{})
+	quote, _ := quoteArr[0].(map[string]any)
 
-	var adjCloses []interface{}
-	if adjArr, _ := indicators["adjclose"].([]interface{}); len(adjArr) > 0 {
-		if adj, ok := adjArr[0].(map[string]interface{}); ok {
-			adjCloses, _ = adj["adjclose"].([]interface{})
+	var adjCloses []any
+	if adjArr, _ := indicators["adjclose"].([]any); len(adjArr) > 0 {
+		if adj, ok := adjArr[0].(map[string]any); ok {
+			adjCloses, _ = adj["adjclose"].([]any)
 		}
 	}
 
@@ -79,7 +82,7 @@ func (c *Client) ChartSeriesContext(ctx context.Context, ticker, rang, interval 
 		if !ok {
 			continue
 		}
-		var adjClose interface{}
+		var adjClose any
 		if i < len(adjCloses) {
 			adjClose = adjCloses[i]
 		}
@@ -94,7 +97,7 @@ func (c *Client) ChartSeriesContext(ctx context.Context, ticker, rang, interval 
 		})
 	}
 
-	events, _ := result["events"].(map[string]interface{})
+	events, _ := result["events"].(map[string]any)
 	dividends, splits := parseEvents(events)
 
 	return series, dividends, splits, nil
@@ -104,13 +107,13 @@ func (c *Client) ChartSeriesContext(ctx context.Context, ticker, rang, interval 
 // objeto "events" de un resultado de chart, indexados por fecha
 // "YYYY-MM-DD". Lo comparten ChartSeries y ChartRange para que ambos
 // interpreten los eventos igual.
-func parseEvents(events map[string]interface{}) (dividends, splits map[string]float64) {
+func parseEvents(events map[string]any) (dividends, splits map[string]float64) {
 	dividends = map[string]float64{}
 	splits = map[string]float64{}
 	if events != nil {
-		if divs, ok := events["dividends"].(map[string]interface{}); ok {
+		if divs, ok := events["dividends"].(map[string]any); ok {
 			for _, dRaw := range divs {
-				d, _ := dRaw.(map[string]interface{})
+				d, _ := dRaw.(map[string]any)
 				if d == nil {
 					continue
 				}
@@ -119,9 +122,9 @@ func parseEvents(events map[string]interface{}) (dividends, splits map[string]fl
 				dividends[date] = amt
 			}
 		}
-		if sp, ok := events["splits"].(map[string]interface{}); ok {
+		if sp, ok := events["splits"].(map[string]any); ok {
 			for _, sRaw := range sp {
-				s, _ := sRaw.(map[string]interface{})
+				s, _ := sRaw.(map[string]any)
 				if s == nil {
 					continue
 				}
@@ -195,12 +198,12 @@ func medianDuration(deltas []time.Duration) time.Duration {
 	return sorted[mid]
 }
 
-func toInterfaceSlice(v interface{}) []interface{} {
-	arr, _ := v.([]interface{})
+func toInterfaceSlice(v any) []any {
+	arr, _ := v.([]any)
 	return arr
 }
 
-func valOrNil(arr []interface{}, i int) interface{} {
+func valOrNil(arr []any, i int) any {
 	if i < 0 || i >= len(arr) {
 		return nil
 	}

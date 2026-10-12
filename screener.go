@@ -26,25 +26,25 @@ type Query struct {
 	operands []any
 }
 
-// Eq: field == v (p. ej. Eq("region", "us"), Eq("exchange", "NMS")).
+// Eq es la condición field == v (p. ej. Eq("region", "us"), Eq("exchange", "NMS")).
 func Eq(field string, v any) Query { return Query{"EQ", []any{field, v}} }
 
-// Gt: field > v.
+// Gt es la condición field > v.
 func Gt(field string, v float64) Query { return Query{"GT", []any{field, v}} }
 
-// Lt: field < v.
+// Lt es la condición field < v.
 func Lt(field string, v float64) Query { return Query{"LT", []any{field, v}} }
 
-// Gte: field >= v.
+// Gte es la condición field >= v.
 func Gte(field string, v float64) Query { return Query{"GTE", []any{field, v}} }
 
-// Lte: field <= v.
+// Lte es la condición field <= v.
 func Lte(field string, v float64) Query { return Query{"LTE", []any{field, v}} }
 
-// Btwn: lo <= field <= hi.
+// Btwn es la condición lo <= field <= hi.
 func Btwn(field string, lo, hi float64) Query { return Query{"BTWN", []any{field, lo, hi}} }
 
-// IsIn: field es alguno de vs. Yahoo no tiene un operador "is-in": se arma
+// IsIn es la condición "field es alguno de vs". Yahoo no tiene un operador "is-in": se arma
 // como Or de Eq, igual que yfinance.
 func IsIn(field string, vs ...any) Query {
 	qs := make([]Query, len(vs))
@@ -54,11 +54,11 @@ func IsIn(field string, vs ...any) Query {
 	return Or(qs...)
 }
 
-// And: se cumplen todas las condiciones. Con una sola condición devuelve
+// And se cumple si se cumplen todas las condiciones. Con una sola condición devuelve
 // esa misma; sin condiciones, una query vacía.
 func And(qs ...Query) Query { return combine("AND", qs) }
 
-// Or: se cumple alguna de las condiciones (mismas reglas que And).
+// Or se cumple si se cumple alguna de las condiciones (mismas reglas que And).
 func Or(qs ...Query) Query { return combine("OR", qs) }
 
 func combine(op string, qs []Query) Query {
@@ -262,13 +262,13 @@ func parseScreen(what string, raw []byte, err error) (*ScreenResult, error) {
 	}
 	var r screenResponse
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return nil, fmt.Errorf("no se pudo parsear la respuesta del %s: %w", what, err)
+		return nil, fmt.Errorf("gohoo: no se pudo parsear la respuesta del %s: %w", what, err)
 	}
 	if e := r.Finance.Error; e != nil {
 		return nil, financeAPIError(what, e.Code, e.Description)
 	}
 	if len(r.Finance.Result) == 0 {
-		return nil, fmt.Errorf("%s: %w", what, ErrEmptyScreen)
+		return nil, fmt.Errorf("gohoo: %s: %w", what, ErrEmptyScreen)
 	}
 	res := r.Finance.Result[0]
 	out := &ScreenResult{Start: res.Start, Count: res.Count, Total: res.Total, Quotes: make([]ScreenQuote, 0, len(res.Quotes))}
@@ -322,9 +322,9 @@ func financeAPIError(what, code, description string) error {
 	lower := strings.ToLower(msg)
 	switch {
 	case strings.Contains(lower, "too many"):
-		return fmt.Errorf("%s: %s: %w", what, msg, ErrRateLimit)
+		return fmt.Errorf("gohoo: %s: %s: %w", what, msg, ErrRateLimit)
 	case strings.EqualFold(code, "Not Found"):
-		return fmt.Errorf("%s: %s: %w", what, msg, ErrNotFound)
+		return fmt.Errorf("gohoo: %s: %s: %w", what, msg, ErrNotFound)
 	}
-	return fmt.Errorf("%s devolvió error: %s", what, msg)
+	return fmt.Errorf("gohoo: %s devolvió error: %s", what, msg)
 }

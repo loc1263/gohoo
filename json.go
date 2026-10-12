@@ -9,9 +9,9 @@ import (
 // RawValue extrae el campo "raw" de los objetos {"raw":x,"fmt":"..."} que usa
 // Yahoo Finance para casi todos los números, o devuelve el valor tal cual si
 // ya es un escalar (string, bool, número plano).
-func RawValue(v interface{}) interface{} {
+func RawValue(v any) any {
 	switch t := v.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if raw, ok := t["raw"]; ok {
 			return raw
 		}
@@ -23,12 +23,12 @@ func RawValue(v interface{}) interface{} {
 	}
 }
 
-// GetPath navega un árbol de map[string]interface{} siguiendo las claves
+// GetPath navega un árbol de map[string]any siguiendo las claves
 // dadas, devolviendo nil si alguna no existe o no es un mapa.
-func GetPath(m map[string]interface{}, keys ...string) interface{} {
-	var cur interface{} = m
+func GetPath(m map[string]any, keys ...string) any {
+	var cur any = m
 	for _, k := range keys {
-		cm, ok := cur.(map[string]interface{})
+		cm, ok := cur.(map[string]any)
 		if !ok {
 			return nil
 		}
@@ -41,14 +41,17 @@ func GetPath(m map[string]interface{}, keys ...string) interface{} {
 }
 
 // Field devuelve el valor "raw" de un módulo plano, p.ej Field(summaryDetail, "trailingPE").
-func Field(m map[string]interface{}, key string) interface{} {
+func Field(m map[string]any, key string) any {
 	if m == nil {
 		return nil
 	}
 	return RawValue(m[key])
 }
 
-func AsFloat(v interface{}) (float64, bool) {
+// AsFloat convierte v a float64 si es un float64, int, int64 o un string
+// numérico; ok es false en cualquier otro caso (incluido nil). Para los
+// objetos {raw, fmt} de Yahoo, aplicar antes RawValue.
+func AsFloat(v any) (float64, bool) {
 	switch t := v.(type) {
 	case float64:
 		return t, true
@@ -67,7 +70,8 @@ func AsFloat(v interface{}) (float64, bool) {
 	}
 }
 
-func AsInt64(v interface{}) (int64, bool) {
+// AsInt64 es AsFloat truncado a int64 (útil para timestamps Unix).
+func AsInt64(v any) (int64, bool) {
 	f, ok := AsFloat(v)
 	if !ok {
 		return 0, false
@@ -75,7 +79,10 @@ func AsInt64(v interface{}) (int64, bool) {
 	return int64(f), true
 }
 
-func AsString(v interface{}) string {
+// AsString convierte v a texto: los strings tal cual, los números sin
+// notación exponencial, los booleanos como "true"/"false", nil como "" y
+// cualquier otro valor con fmt.
+func AsString(v any) string {
 	if v == nil {
 		return ""
 	}
@@ -92,7 +99,7 @@ func AsString(v interface{}) string {
 }
 
 // EpochToDate convierte un timestamp Unix (segundos) a "YYYY-MM-DD" en UTC.
-func EpochToDate(v interface{}) string {
+func EpochToDate(v any) string {
 	f, ok := AsFloat(v)
 	if !ok {
 		return ""
@@ -102,7 +109,7 @@ func EpochToDate(v interface{}) string {
 
 // EpochToDateTimeNY convierte un timestamp Unix a "YYYY-MM-DD HH:MM:SS-07:00"
 // en la zona America/New_York (zona horaria de las fechas de resultados).
-func EpochToDateTimeNY(v interface{}, loc *time.Location) string {
+func EpochToDateTimeNY(v any, loc *time.Location) string {
 	f, ok := AsFloat(v)
 	if !ok {
 		return ""
@@ -118,7 +125,7 @@ func EpochToDateTimeNY(v interface{}, loc *time.Location) string {
 
 // EpochToMidnight da formato "YYYY-MM-DD HH:MM:SS" (siempre 00:00:00) para
 // columnas de período de estados financieros.
-func EpochToMidnight(v interface{}) string {
+func EpochToMidnight(v any) string {
 	d := EpochToDate(v)
 	if d == "" {
 		return ""
@@ -126,6 +133,8 @@ func EpochToMidnight(v interface{}) string {
 	return d + " 00:00:00"
 }
 
+// DateStringToMidnight agrega " 00:00:00" a una fecha "YYYY-MM-DD" (vacío si
+// s es vacío), con el mismo formato que EpochToMidnight.
 func DateStringToMidnight(s string) string {
 	if s == "" {
 		return ""
@@ -133,6 +142,7 @@ func DateStringToMidnight(s string) string {
 	return s + " 00:00:00"
 }
 
+// ParseDateOnly interpreta una fecha "YYYY-MM-DD" (en UTC).
 func ParseDateOnly(s string) (time.Time, error) {
 	return time.Parse("2006-01-02", s)
 }

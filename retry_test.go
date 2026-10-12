@@ -14,7 +14,7 @@ func TestRateLimitIsDetectableAfterRetries(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "7")
 		w.WriteHeader(http.StatusTooManyRequests)
-		w.Write([]byte("slow down"))
+		_, _ = w.Write([]byte("slow down"))
 	}))
 	defer srv.Close()
 
@@ -60,7 +60,7 @@ func TestStatusErrorSentinels(t *testing.T) {
 
 func TestPersistent401IsUnauthorized(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/test/getcrumb", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("c")) })
+	mux.HandleFunc("/v1/test/getcrumb", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("c")) })
 	mux.HandleFunc("/v8/finance/chart/AAPL", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	})
@@ -150,7 +150,7 @@ func TestRetryPolicyHonorRetryAfterMaxDelayAndOnRetry(t *testing.T) {
 	}
 	testCfg(client).retry = &p
 	delays := recordSleep(client)
-	client.Chart("AAPL", "1y", "1d")
+	_, _ = client.Chart("AAPL", "1y", "1d")
 
 	if got := *delays; len(got) != 2 || got[0] != 3*time.Second || got[1] != 3*time.Second {
 		t.Errorf("retardos = %v, want [3s 3s] (Retry-After 5s acotado por MaxDelay)", got)

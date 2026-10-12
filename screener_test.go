@@ -69,7 +69,7 @@ func TestScreenRequestAndParse(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		w.Write(readFixture(t, "screener_us_megacap.json"))
+		_, _ = w.Write(readFixture(t, "screener_us_megacap.json"))
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)
@@ -103,8 +103,8 @@ func TestScreenRequestAndParse(t *testing.T) {
 func TestScreenDefaults(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&body)
-		w.Write(readFixture(t, "screener_empty.json"))
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = w.Write(readFixture(t, "screener_empty.json"))
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)
@@ -158,7 +158,7 @@ func TestScreenAPIErrors(t *testing.T) {
 	for _, tc := range cases {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(tc.status)
-			io.WriteString(w, tc.body)
+			_, _ = io.WriteString(w, tc.body)
 		}))
 		c := newTestClient(t, srv)
 		_, err := c.Screen(context.Background(), ScreenParams{Query: Eq("region", "us")})
@@ -184,13 +184,13 @@ func TestScreenPredefined(t *testing.T) {
 		}
 		if q.Get("scrIds") == "no_existe" {
 			w.WriteHeader(http.StatusNotFound)
-			w.Write(readFixture(t, "screener_predefined_not_found.json"))
+			_, _ = w.Write(readFixture(t, "screener_predefined_not_found.json"))
 			return
 		}
 		if q.Get("scrIds") != "day_gainers" || q.Get("count") != "2" || q.Get("offset") != "0" || q.Get("crumb") != "test-crumb" {
 			t.Errorf("query = %v", q)
 		}
-		w.Write(readFixture(t, "screener_predefined_day_gainers.json"))
+		_, _ = w.Write(readFixture(t, "screener_predefined_day_gainers.json"))
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)

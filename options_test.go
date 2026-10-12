@@ -84,7 +84,7 @@ func TestDefaultRenewsCrumbOn401(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/test/getcrumb", func(w http.ResponseWriter, r *http.Request) {
 		crumbCalls.Add(1)
-		w.Write([]byte("nuevo-crumb"))
+		_, _ = w.Write([]byte("nuevo-crumb"))
 	})
 	mux.HandleFunc("/v10/finance/quoteSummary/AAPL", func(w http.ResponseWriter, r *http.Request) {
 		if chartCalls.Add(1) == 1 {
@@ -94,7 +94,7 @@ func TestDefaultRenewsCrumbOn401(t *testing.T) {
 		if got := r.URL.Query().Get("crumb"); got != "nuevo-crumb" {
 			t.Errorf("crumb = %q, want nuevo-crumb", got)
 		}
-		w.Write([]byte(`{"quoteSummary":{"result":[{"price":{}}],"error":null}}`))
+		_, _ = w.Write([]byte(`{"quoteSummary":{"result":[{"price":{}}],"error":null}}`))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -117,7 +117,7 @@ func TestNewClientWithOptionsLazyMakesNoRequests(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		gotUA.Store(r.UserAgent())
-		w.Write([]byte(chartFixture))
+		_, _ = w.Write([]byte(chartFixture))
 	}))
 	defer srv.Close()
 
@@ -145,13 +145,13 @@ func TestLazyBootstrapRunsOnceForQuoteSummary(t *testing.T) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {}) // fc.yahoo.com
 	mux.HandleFunc("/v1/test/getcrumb", func(w http.ResponseWriter, r *http.Request) {
 		crumbCalls.Add(1)
-		w.Write([]byte("crumb-perezoso"))
+		_, _ = w.Write([]byte("crumb-perezoso"))
 	})
 	mux.HandleFunc("/v10/finance/quoteSummary/AAPL", func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("crumb"); got != "crumb-perezoso" {
 			t.Errorf("crumb = %q, want crumb-perezoso", got)
 		}
-		w.Write([]byte(`{"quoteSummary":{"result":[{"price":{}}],"error":null}}`))
+		_, _ = w.Write([]byte(`{"quoteSummary":{"result":[{"price":{}}],"error":null}}`))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -159,11 +159,13 @@ func TestLazyBootstrapRunsOnceForQuoteSummary(t *testing.T) {
 	client := newRewritingClient(t, srv, WithLazyBootstrap())
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			if _, err := client.QuoteSummaryContext(context.Background(), "AAPL", []string{"price"}); err != nil {
 				t.Error(err)
 			}
-		})
+		}()
 	}
 	wg.Wait()
 	if crumbCalls.Load() != 1 {
@@ -179,7 +181,7 @@ func TestNewClientWithOptionsEagerBootstrap(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	})
 	mux.HandleFunc("/v1/test/getcrumb", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("crumb-ok"))
+		_, _ = w.Write([]byte("crumb-ok"))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

@@ -23,7 +23,7 @@ func serveFile(t *testing.T, name string) http.HandlerFunc {
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(body)
+		_, _ = w.Write(body)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestChartRangeUsesRange(t *testing.T) {
 		if q.Get("range") != "5y" || q.Has("period1") || q.Get("interval") != "1d" || q.Get("events") != "div,splits" {
 			t.Errorf("query = %v", q)
 		}
-		w.Write([]byte(chartFixture))
+		_, _ = w.Write([]byte(chartFixture))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -134,7 +134,7 @@ func TestChartRangeAdjCloseCriterion(t *testing.T) {
 	}
 	for _, c := range cases {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(c.body))
+			_, _ = w.Write([]byte(c.body))
 		}))
 		res, err := newTestClient(t, srv).ChartRange(context.Background(), "X", ChartParams{Range: "1y"})
 		srv.Close()
@@ -160,7 +160,7 @@ func TestChartRangeAdjCloseCriterion(t *testing.T) {
 
 func TestChartRangeNullFieldsAreNaN(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"chart":{"result":[{"meta":{"symbol":"X"},"timestamp":[1700000000,1700086400],
+		_, _ = w.Write([]byte(`{"chart":{"result":[{"meta":{"symbol":"X"},"timestamp":[1700000000,1700086400],
 			"indicators":{"quote":[{"open":[null,1],"high":[null,1],"low":[null,1],"close":[null,1],"volume":[null,1]}],
 			"adjclose":[{"adjclose":[10,1]}]}}],"error":null}}`))
 	}))
@@ -197,7 +197,7 @@ func TestChartRangeErrorsInBody(t *testing.T) {
 		}
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(c.status)
-			w.Write(body)
+			_, _ = w.Write(body)
 		}))
 		client := newTestClient(t, srv)
 		_, err = client.ChartRange(context.Background(), "ZZZZ", ChartParams{Range: "1y"})
@@ -210,7 +210,7 @@ func TestChartRangeErrorsInBody(t *testing.T) {
 
 func TestChartRangeAndChartSeriesShareEvents(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(chartFixture))
+		_, _ = w.Write([]byte(chartFixture))
 	}))
 	defer srv.Close()
 
@@ -247,7 +247,7 @@ func TestConcurrentClientUse(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		w.Write([]byte(chartFixture))
+		_, _ = w.Write([]byte(chartFixture))
 	}))
 	defer srv.Close()
 
@@ -259,13 +259,15 @@ func TestConcurrentClientUse(t *testing.T) {
 	recordSleep(client)
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Go(func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			for range 5 {
 				if _, err := client.ChartRange(context.Background(), "AAPL", ChartParams{Range: "1y"}); err != nil {
 					t.Error(err)
 				}
 			}
-		})
+		}()
 	}
 	wg.Wait()
 }

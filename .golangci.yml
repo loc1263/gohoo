@@ -1,0 +1,13 @@
+version: "2"
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  exclusions:
+    rules:
+      # Los tests usan a propósito la API deprecada (compat_test.go fija sus firmas).
+      - path: _test\.go
+        linters: [staticcheck]
+        text: "SA1019"
+
+formatters:
+  enable: [gofmt]

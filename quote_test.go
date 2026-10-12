@@ -20,7 +20,7 @@ func TestQuotesParsesFixture(t *testing.T) {
 			t.Errorf("request inesperada: %s", r.URL)
 		}
 		got = r.URL.Query().Get("symbols")
-		w.Write(readFixture(t, "quote_mixed.json"))
+		_, _ = w.Write(readFixture(t, "quote_mixed.json"))
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)
@@ -104,7 +104,7 @@ func TestQuotesEmptyInputAndUnknownSymbols(t *testing.T) {
 		t.Errorf("sin símbolos: %v %v", qs, err)
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(readFixture(t, "quote_empty.json"))
+		_, _ = w.Write(readFixture(t, "quote_empty.json"))
 	}))
 	defer srv.Close()
 	qs, err := newTestClient(t, srv).Quotes(context.Background(), []string{"NOEXISTE1"})

@@ -16,12 +16,15 @@ Documentación: [API.md](API.md) (referencia de funciones/tipos) · [ENDPOINTS.m
 go get github.com/loc1263/gohoo
 ```
 
+Requiere Go 1.22 o superior. Sin dependencias fuera de la biblioteca estándar.
+
 ## Uso
 
 ```go
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -29,33 +32,44 @@ import (
 )
 
 func main() {
-	client, err := gohoo.NewClient()
+	ctx := context.Background()
+	client, err := gohoo.NewClientWithOptions(gohoo.WithLazyBootstrap())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Indicadores y módulos "en crudo" de quoteSummary.
-	data, err := client.QuoteSummary("AAPL", []string{"price", "summaryDetail"})
+	// Histórico diario, ajustado por dividendos y splits, e indicadores.
+	res, err := client.ChartRange(ctx, "AAPL", gohoo.ChartParams{Range: "1y", Interval: "1d"})
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Precio actual:", gohoo.Field(data["price"].(map[string]interface{}), "regularMarketPrice"))
+	bars := res.AutoAdjusted()
+	rsi := gohoo.RSI(gohoo.Closes(bars), 14)
+	fmt.Printf("%d velas, último RSI14 %.1f\n", len(bars), rsi[len(rsi)-1])
 
-	// Histórico OHLCV ya parseado (acciones, ETFs o criptomonedas).
-	series, dividends, splits, err := client.ChartSeries("AAPL", "1y", "1d")
+	// Datos de la empresa (estilo Ticker.info) y cotizaciones en lote.
+	info, err := client.Info(ctx, "AAPL", gohoo.InfoPercentYield())
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("%d velas, %d fechas con dividendo, %d con split\n", len(series), len(dividends), len(splits))
+	fmt.Println("Sector:", info["sector"], "- dividend yield %:", info["dividendYield"])
+
+	quotes, err := client.Quotes(ctx, []string{"AAPL", "MSFT", "BTC-USD"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, q := range quotes {
+		fmt.Println(q.Symbol, q.Price, q.Currency)
+	}
 }
 ```
 
 ## API
 
 - `NewClient() (*Client, error)` — crea una sesión autenticada (cookie + crumb de Yahoo).
-- `(*Client) QuoteSummary(ticker string, modules []string) (map[string]interface{}, error)` — módulos de `quoteSummary` (precio, estadísticas, estimaciones de analistas, etc.), fusionados en un solo mapa.
-- `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]interface{}, error)` — estados financieros anuales/trimestrales vía `fundamentals-timeseries`.
-- `(*Client) Chart(ticker, rango, intervalo string) (map[string]interface{}, error)` — respuesta cruda del endpoint `chart` (OHLCV + dividendos/splits).
+- `(*Client) QuoteSummary(ticker string, modules []string) (map[string]any, error)` — módulos de `quoteSummary` (precio, estadísticas, estimaciones de analistas, etc.), fusionados en un solo mapa.
+- `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]any, error)` — estados financieros anuales/trimestrales vía `fundamentals-timeseries`.
+- `(*Client) Chart(ticker, rango, intervalo string) (map[string]any, error)` — respuesta cruda del endpoint `chart` (OHLCV + dividendos/splits).
 - `(*Client) ChartSeries(ticker, rango, intervalo string) ([]OHLCV, dividendos, splits map[string]float64, error)` — `Chart` ya parseado a una serie ordenada, más dividendos/splits indexados por fecha (`"YYYY-MM-DD"`).
 - `NewClientWithOptions(opts ...Option) (*Client, error)` — cliente configurable: `WithHTTPClient`, `WithBaseURL`, `WithUserAgent`, `WithRetryPolicy`, `WithLazyBootstrap` (no hace red hasta que de verdad se necesita el crumb). Sin opciones se comporta exactamente igual que `NewClient()`.
 - `QuoteSummaryContext`, `FundamentalsTimeseriesContext`, `ChartContext`, `ChartSeriesContext` — iguales a los anteriores, cancelables con un `context.Context` (también durante la espera entre reintentos).
@@ -118,7 +132,13 @@ dates, adj := res.Monthly()
 go test ./...
 ```
 
-Los tests no requieren red: simulan las respuestas de Yahoo con un `httptest.Server` local.
+Los tests no requieren red: simulan las respuestas de Yahoo con un `httptest.Server` local, algunos con respuestas grabadas de Yahoo en `testdata/`. Las pruebas contra Yahoo real se corren solo a pedido:
+
+```bash
+go test -tags live -run Live ./...
+```
+
+El CI corre `gofmt`, `go vet`, `golangci-lint`, `apidiff` (sin cambios incompatibles de API entre versiones) y los tests en Linux y Windows con Go 1.22 y la última versión de Go.
 
 ## Licencia
 

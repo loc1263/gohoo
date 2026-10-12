@@ -19,7 +19,7 @@ func TestGetJSONAddsCrumbAndQuery(t *testing.T) {
 			t.Errorf("request inesperada: %s %s", r.Method, r.URL.Path)
 		}
 		got = r.URL.Query()
-		io.WriteString(w, `{"ok":true}`)
+		_, _ = io.WriteString(w, `{"ok":true}`)
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)
@@ -40,7 +40,7 @@ func TestGetJSONRelativePathWithoutSlashAndAbsoluteURL(t *testing.T) {
 	var paths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
-		io.WriteString(w, `{}`)
+		_, _ = io.WriteString(w, `{}`)
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)
@@ -76,7 +76,7 @@ func TestPostJSONSendsBodyAndRetries5xx(t *testing.T) {
 			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		io.WriteString(w, `{"ok":1}`)
+		_, _ = io.WriteString(w, `{"ok":1}`)
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv)
@@ -96,15 +96,15 @@ func TestPostJSONRenewsCrumbOn401(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/test/getcrumb":
-			io.WriteString(w, "NUEVO")
+			_, _ = io.WriteString(w, "NUEVO")
 		case "/v1/finance/screener":
 			crumbs = append(crumbs, r.URL.Query().Get("crumb"))
 			if r.URL.Query().Get("crumb") != "NUEVO" {
 				w.WriteHeader(http.StatusUnauthorized)
-				io.WriteString(w, `{"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}`)
+				_, _ = io.WriteString(w, `{"finance":{"result":null,"error":{"code":"Unauthorized","description":"Invalid Crumb"}}}`)
 				return
 			}
-			io.WriteString(w, `{}`)
+			_, _ = io.WriteString(w, `{}`)
 		default:
 			w.WriteHeader(http.StatusNotFound) // fc.yahoo.com
 		}
@@ -125,7 +125,7 @@ func TestPostJSONLazyBootstrapAndTypedErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/test/getcrumb":
-			io.WriteString(w, "C1")
+			_, _ = io.WriteString(w, "C1")
 		case "/limite":
 			w.WriteHeader(http.StatusTooManyRequests)
 		default:

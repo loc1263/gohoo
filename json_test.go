@@ -8,11 +8,11 @@ import (
 func TestRawValue(t *testing.T) {
 	cases := []struct {
 		name string
-		in   interface{}
-		want interface{}
+		in   any
+		want any
 	}{
-		{"wrapped raw", map[string]interface{}{"raw": 12.5, "fmt": "12.50"}, 12.5},
-		{"map without raw", map[string]interface{}{"fmt": "n/a"}, nil},
+		{"wrapped raw", map[string]any{"raw": 12.5, "fmt": "12.50"}, 12.5},
+		{"map without raw", map[string]any{"fmt": "n/a"}, nil},
 		{"plain scalar", "AAPL", "AAPL"},
 		{"plain number", 42.0, 42.0},
 		{"nil", nil, nil},
@@ -28,15 +28,15 @@ func TestRawValue(t *testing.T) {
 }
 
 func TestGetPath(t *testing.T) {
-	tree := map[string]interface{}{
-		"summaryDetail": map[string]interface{}{
-			"trailingPE": map[string]interface{}{"raw": 28.5, "fmt": "28.50"},
+	tree := map[string]any{
+		"summaryDetail": map[string]any{
+			"trailingPE": map[string]any{"raw": 28.5, "fmt": "28.50"},
 		},
 	}
 
 	got := GetPath(tree, "summaryDetail", "trailingPE")
-	want := map[string]interface{}{"raw": 28.5, "fmt": "28.50"}
-	gotMap, ok := got.(map[string]interface{})
+	want := map[string]any{"raw": 28.5, "fmt": "28.50"}
+	gotMap, ok := got.(map[string]any)
 	if !ok || gotMap["raw"] != want["raw"] {
 		t.Errorf("GetPath = %v, want %v", got, want)
 	}
@@ -53,8 +53,8 @@ func TestGetPath(t *testing.T) {
 }
 
 func TestField(t *testing.T) {
-	m := map[string]interface{}{
-		"regularMarketPrice": map[string]interface{}{"raw": 150.23, "fmt": "150.23"},
+	m := map[string]any{
+		"regularMarketPrice": map[string]any{"raw": 150.23, "fmt": "150.23"},
 	}
 	if got := Field(m, "regularMarketPrice"); got != 150.23 {
 		t.Errorf("Field = %v, want 150.23", got)
@@ -69,7 +69,7 @@ func TestField(t *testing.T) {
 
 func TestAsFloat(t *testing.T) {
 	cases := []struct {
-		in     interface{}
+		in     any
 		want   float64
 		wantOk bool
 	}{
@@ -101,7 +101,7 @@ func TestAsInt64(t *testing.T) {
 
 func TestAsString(t *testing.T) {
 	cases := []struct {
-		in   interface{}
+		in   any
 		want string
 	}{
 		{nil, ""},

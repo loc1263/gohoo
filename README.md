@@ -16,12 +16,15 @@ Documentation (currently in Spanish): [API.md](API.md) (function/type reference)
 go get github.com/loc1263/gohoo
 ```
 
+Requires Go 1.22 or later. No dependencies outside the standard library.
+
 ## Usage
 
 ```go
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -29,33 +32,44 @@ import (
 )
 
 func main() {
-	client, err := gohoo.NewClient()
+	ctx := context.Background()
+	client, err := gohoo.NewClientWithOptions(gohoo.WithLazyBootstrap())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Raw quoteSummary modules and indicators.
-	data, err := client.QuoteSummary("AAPL", []string{"price", "summaryDetail"})
+	// Daily history, adjusted for dividends and splits, plus indicators.
+	res, err := client.ChartRange(ctx, "AAPL", gohoo.ChartParams{Range: "1y", Interval: "1d"})
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Current price:", gohoo.Field(data["price"].(map[string]interface{}), "regularMarketPrice"))
+	bars := res.AutoAdjusted()
+	rsi := gohoo.RSI(gohoo.Closes(bars), 14)
+	fmt.Printf("%d candles, last RSI14 %.1f\n", len(bars), rsi[len(rsi)-1])
 
-	// Parsed OHLCV history (stocks, ETFs or cryptocurrencies).
-	series, dividends, splits, err := client.ChartSeries("AAPL", "1y", "1d")
+	// Company data (Ticker.info style) and batch quotes.
+	info, err := client.Info(ctx, "AAPL", gohoo.InfoPercentYield())
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("%d candles, %d dividend dates, %d split dates\n", len(series), len(dividends), len(splits))
+	fmt.Println("Sector:", info["sector"], "- dividend yield %:", info["dividendYield"])
+
+	quotes, err := client.Quotes(ctx, []string{"AAPL", "MSFT", "BTC-USD"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, q := range quotes {
+		fmt.Println(q.Symbol, q.Price, q.Currency)
+	}
 }
 ```
 
 ## API
 
 - `NewClient() (*Client, error)` — creates an authenticated session (Yahoo cookie + crumb).
-- `(*Client) QuoteSummary(ticker string, modules []string) (map[string]interface{}, error)` — `quoteSummary` modules (price, statistics, analyst estimates, etc.), merged into a single map.
-- `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]interface{}, error)` — annual/quarterly financial statements via `fundamentals-timeseries`.
-- `(*Client) Chart(ticker, rang, interval string) (map[string]interface{}, error)` — raw response from the `chart` endpoint (OHLCV + dividends/splits).
+- `(*Client) QuoteSummary(ticker string, modules []string) (map[string]any, error)` — `quoteSummary` modules (price, statistics, analyst estimates, etc.), merged into a single map.
+- `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]any, error)` — annual/quarterly financial statements via `fundamentals-timeseries`.
+- `(*Client) Chart(ticker, rang, interval string) (map[string]any, error)` — raw response from the `chart` endpoint (OHLCV + dividends/splits).
 - `(*Client) ChartSeries(ticker, rang, interval string) ([]OHLCV, dividends, splits map[string]float64, error)` — `Chart` already parsed into a sorted series, plus dividends/splits keyed by date (`"YYYY-MM-DD"`).
 - `NewClientWithOptions(opts ...Option) (*Client, error)` — configurable client: `WithHTTPClient`, `WithBaseURL`, `WithUserAgent`, `WithRetryPolicy`, `WithLazyBootstrap` (no network until a crumb is actually needed). With no options it behaves exactly like `NewClient()`.
 - `QuoteSummaryContext`, `FundamentalsTimeseriesContext`, `ChartContext`, `ChartSeriesContext` — same as above, cancellable through a `context.Context` (also during the retry backoff).
@@ -118,7 +132,13 @@ dates, adj := res.Monthly()
 go test ./...
 ```
 
-Tests need no network access: they simulate Yahoo's responses with a local `httptest.Server`.
+Tests need no network access: they simulate Yahoo's responses with a local `httptest.Server`, some of them with responses recorded from Yahoo in `testdata/`. Tests against the real Yahoo run only on demand:
+
+```bash
+go test -tags live -run Live ./...
+```
+
+CI runs `gofmt`, `go vet`, `golangci-lint`, `apidiff` (no incompatible API changes between versions) and the tests on Linux and Windows with Go 1.22 and the latest Go.
 
 ## License
 

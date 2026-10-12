@@ -8,26 +8,26 @@ import "time"
 var (
 	_ func() (*Client, error) = NewClient
 
-	_ func(*Client, string, []string) (map[string]interface{}, error)                                = (*Client).QuoteSummary
-	_ func(*Client, string, []string) (map[string]interface{}, error)                                = (*Client).FundamentalsTimeseries
-	_ func(*Client, string, string, string) (map[string]interface{}, error)                          = (*Client).Chart
+	_ func(*Client, string, []string) (map[string]any, error)                                        = (*Client).QuoteSummary
+	_ func(*Client, string, []string) (map[string]any, error)                                        = (*Client).FundamentalsTimeseries
+	_ func(*Client, string, string, string) (map[string]any, error)                                  = (*Client).Chart
 	_ func(*Client, string, string, string) ([]OHLCV, map[string]float64, map[string]float64, error) = (*Client).ChartSeries
 
-	_ func(map[string]interface{}) (map[string]interface{}, bool) = FirstResult
-	_ func([]OHLCV, float64) []Gap                                = DetectGaps
-	_ func([]OHLCV) []IndicatorSet                                = ComputeIndicators
+	_ func(map[string]any) (map[string]any, bool) = FirstResult
+	_ func([]OHLCV, float64) []Gap                = DetectGaps
+	_ func([]OHLCV) []IndicatorSet                = ComputeIndicators
 
-	_ func(interface{}) interface{}                       = RawValue
-	_ func(map[string]interface{}, ...string) interface{} = GetPath
-	_ func(map[string]interface{}, string) interface{}    = Field
-	_ func(interface{}) (float64, bool)                   = AsFloat
-	_ func(interface{}) (int64, bool)                     = AsInt64
-	_ func(interface{}) string                            = AsString
-	_ func(interface{}) string                            = EpochToDate
-	_ func(interface{}, *time.Location) string            = EpochToDateTimeNY
-	_ func(interface{}) string                            = EpochToMidnight
-	_ func(string) string                                 = DateStringToMidnight
-	_ func(string) (time.Time, error)                     = ParseDateOnly
+	_ func(any) any                       = RawValue
+	_ func(map[string]any, ...string) any = GetPath
+	_ func(map[string]any, string) any    = Field
+	_ func(any) (float64, bool)           = AsFloat
+	_ func(any) (int64, bool)             = AsInt64
+	_ func(any) string                    = AsString
+	_ func(any) string                    = EpochToDate
+	_ func(any, *time.Location) string    = EpochToDateTimeNY
+	_ func(any) string                    = EpochToMidnight
+	_ func(string) string                 = DateStringToMidnight
+	_ func(string) (time.Time, error)     = ParseDateOnly
 )
 
 // Campos exportados de los tipos públicos de v0.1.0 (y del error interno

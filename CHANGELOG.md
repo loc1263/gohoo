@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-10-12
+
+No exported signature or behavior changed (checked with `apidiff` against v0.2.1 and v0.6.0).
+
+### Deprecated
+- `Client.QuoteSummary` and `Client.FundamentalsTimeseries`: use their `...Context` variants.
+- `Client.Chart`, `Client.ChartContext` and `FirstResult`: use `ChartRange` (or `GetJSON` for the raw response).
+They keep working; the `Deprecated:` comment only makes tools such as pkg.go.dev, editors and staticcheck point to the replacement.
+
+### Changed
+- The minimum Go version in `go.mod` goes down from 1.26.1 to 1.22.0, the oldest one that builds and passes the tests. Projects on older Go can now use gohoo; nothing changes for the rest.
+- Error messages built by gohoo start with `gohoo:`. The retry summary (`agotados N intentos: ...`) and `StatusError` keep their format. Error text is not part of the API: classify errors with `errors.Is`/`errors.As`.
+- Documentation: new package overview (`doc.go`) with a guide to which method to use, doc comments on every exported identifier, `any` instead of `interface{}` everywhere (same type), README example updated to the current API.
+- CI: `golangci-lint`, `go vet -tags live`, and tests on Linux and Windows with Go 1.22 and the latest Go.
+
 ## [0.6.0] - 2026-10-12
 
 All changes are additive: no exported signature or default behavior changed

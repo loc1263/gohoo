@@ -111,7 +111,7 @@ func (c *Client) quoteBatch(ctx context.Context, batch []string) ([]Quote, error
 		} `json:"quoteResponse"`
 	}
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return nil, fmt.Errorf("no se pudo parsear la respuesta de %s: %w", what, err)
+		return nil, fmt.Errorf("gohoo: no se pudo parsear la respuesta de %s: %w", what, err)
 	}
 	if e := r.QuoteResponse.Error; e != nil {
 		return nil, financeAPIError(what, e.Code, e.Description)

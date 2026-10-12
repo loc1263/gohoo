@@ -129,7 +129,7 @@ func NewClientWithOptions(opts ...Option) (*Client, error) {
 	c := &Client{http: hc, cfg: &cfg}
 	if !cfg.lazy {
 		if err := c.bootstrap(context.Background()); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("gohoo: %w", err)
 		}
 	}
 	return c, nil

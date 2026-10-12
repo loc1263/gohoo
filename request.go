@@ -44,7 +44,7 @@ func (c *Client) authedRequest(ctx context.Context, method, path string, q url.V
 		return nil, err
 	}
 	if err := c.ensureCrumb(ctx); err != nil {
-		return nil, fmt.Errorf("%s: %w", endpoint, err)
+		return nil, fmt.Errorf("gohoo: %s: %w", endpoint, err)
 	}
 	return c.doAuthedCheck(ctx, method, func() string {
 		v := make(url.Values, len(base)+1)
