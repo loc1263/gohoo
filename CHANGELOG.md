@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-10-12
+
+All changes are additive: no exported signature or default behavior changed
+(checked with `apidiff` against v0.2.1 and v0.4.0).
+
+### Added
+- `Info` and `FlattenInfo`: a flat `Ticker.info`-style map from `quoteSummary`. Modules are walked in priority order (`InfoModules()`: `summaryDetail` first, because some `defaultKeyStatistics` fields come corrupted for some stocks), the first occurrence of a key wins, numbers are unwrapped and nulls are dropped. Options: `InfoWithModules`, `InfoPercentYield` (dividend yield in percent, falling back to `yield` for ETFs) and `InfoWithTrailingPEG` (adds `trailingPegRatio` from fundamentals-timeseries). With no options values are left as Yahoo sends them.
+- `TimeseriesPoints` and `Point` (date, period type, currency, value): typed observations of a fundamentals-timeseries type, newest first. `(*Client).TrailingPEG`.
+- `AutoAdjust` and `(*ChartResult).AutoAdjusted()`: the equivalent of yfinance `auto_adjust` (Close = AdjClose, Open/High/Low scaled by the same factor). `Bar.Date()` and `AtMidnight` index daily/weekly bars by date.
+
 ## [0.4.0] - 2026-10-12
 
 All changes are additive: no exported signature or default behavior changed

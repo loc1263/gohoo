@@ -22,6 +22,9 @@ import "github.com/loc1263/gohoo"
   - [Screen y ScreenPredefined](#screen-y-screenpredefined)
   - [Quotes](#quotes)
   - [WithLimiter y WithRequestHook](#withlimiter-y-withrequesthook)
+  - [Info y FlattenInfo](#info-y-flatteninfo)
+  - [TimeseriesPoints y TrailingPEG](#timeseriespoints-y-trailingpeg)
+  - [AutoAdjust, Bar.Date y AtMidnight](#autoadjust-bardate-y-atmidnight)
 - [Indicadores técnicos](#indicadores-técnicos)
 - [Detección de huecos](#detección-de-huecos)
 - [Tipos](#tipos)
@@ -350,6 +353,68 @@ client, err := gohoo.NewClientWithOptions(
         }
     }),
 )
+```
+
+### Info y FlattenInfo
+
+```go
+func (c *Client) Info(ctx context.Context, ticker string, opts ...InfoOption) (map[string]any, error)
+func FlattenInfo(qs map[string]any, opts ...InfoOption) map[string]any
+func InfoModules() []string // summaryDetail, price, defaultKeyStatistics, financialData, assetProfile, quoteType
+
+func InfoWithModules(modules ...string) InfoOption // módulos a pedir/aplanar y su prioridad
+func InfoPercentYield() InfoOption                 // dividendYield en %, con "yield" de respaldo (ETF)
+func InfoWithTrailingPEG() InfoOption              // agrega trailingPegRatio (una request más; solo Info)
+```
+
+Un mapa plano con los datos del ticker, al estilo de `Ticker.info` de yfinance. `FlattenInfo` es la parte pura (sobre una respuesta de `QuoteSummary`); `Info` pide `quoteSummary` y aplana.
+
+- Los módulos se recorren en orden de prioridad y **la primera aparición de cada clave gana**. `summaryDetail` va primero porque algunos campos de `defaultKeyStatistics` vienen corruptos en ciertas acciones (p. ej. `forwardPE` de 11836 en vez de 11,2 en `COPEC.SN`).
+- Los números quedan sin el envoltorio `{raw, fmt}`; los `null` y los objetos sin `raw` (p. ej. el `{}` que trae `dividendYield` en los ETF) se omiten. Los módulos de la respuesta que no están en la lista se ignoran.
+- Sin opciones, los valores quedan tal como los manda Yahoo (`dividendYield` en fracción: 0,0279). `InfoPercentYield` los lleva a porcentaje (2,79), como yfinance.
+- Con `InfoWithTrailingPEG`, si la request de fundamentals falla o no hay dato, la clave no se agrega e `Info` no falla.
+
+```go
+info, err := client.Info(ctx, "AAPL", gohoo.InfoPercentYield(), gohoo.InfoWithTrailingPEG())
+pe, _ := gohoo.AsFloat(info["trailingPE"])
+```
+
+### TimeseriesPoints y TrailingPEG
+
+```go
+type Point struct {
+    Date       string  // "YYYY-MM-DD"
+    PeriodType string  // "3M", "12M", "TTM"...
+    Currency   string  // vacío en ratios
+    Value      float64
+}
+
+func TimeseriesPoints(data map[string]any, typ string) []Point
+func (c *Client) TrailingPEG(ctx context.Context, ticker string) (v float64, ok bool, err error)
+```
+
+`TimeseriesPoints` extrae de una respuesta de `FundamentalsTimeseries` las observaciones de un tipo, **la más reciente primero**, sin las que no traen fecha o valor (`nil` si el tipo no está). `TrailingPEG` devuelve el último `trailingPegRatio`, que Yahoo publica en fundamentals-timeseries y no en `quoteSummary`; `ok` es false si no hay dato.
+
+```go
+data, _ := client.FundamentalsTimeseriesContext(ctx, "AAPL", []string{"quarterlyTotalRevenue"})
+for _, p := range gohoo.TimeseriesPoints(data, "quarterlyTotalRevenue") {
+    fmt.Println(p.Date, p.Value, p.Currency)
+}
+```
+
+### AutoAdjust, Bar.Date y AtMidnight
+
+```go
+func AutoAdjust(bars []Bar) []Bar
+func (r *ChartResult) AutoAdjusted() []Bar // AutoAdjust(r.Bars)
+func (b Bar) Date() time.Time              // medianoche del día de b.Time, en su zona
+func AtMidnight(bars []Bar) []Bar
+```
+
+`AutoAdjust` equivale a `auto_adjust=True` de yfinance: `Close = AdjClose` y `Open`, `High` y `Low` se escalan con el mismo factor `AdjClose/Close` (factor 1 si `Close` es 0 o NaN, o si `AdjClose` es NaN); `Time` y `Volume` no cambian. `AtMidnight` lleva cada `Time` a `Date()` para indexar velas diarias, semanales o mensuales por fecha, como yfinance (no usar con velas intradía). Ninguna modifica su entrada.
+
+```go
+bars := gohoo.AtMidnight(res.AutoAdjusted())
 ```
 
 ---

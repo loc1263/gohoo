@@ -81,3 +81,30 @@ func TestLiveQuotesAndHooks(t *testing.T) {
 	}
 	t.Logf("AAPL %.2f %s, CLP=X %.2f, %d requests (con bootstrap)", by["AAPL"].Price, by["AAPL"].Time.Format(time.RFC3339), by["CLP=X"].Price, len(events))
 }
+
+func TestLiveInfoTimeseriesAndAdjust(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	c := liveClient(t)
+	info, err := c.Info(ctx, "AAPL", InfoPercentYield(), InfoWithTrailingPEG())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info["currency"] != "USD" || info["sector"] == nil || info["trailingPegRatio"] == nil {
+		t.Fatalf("info: currency=%v sector=%v peg=%v", info["currency"], info["sector"], info["trailingPegRatio"])
+	}
+	data, err := c.FundamentalsTimeseriesContext(ctx, "AAPL", []string{"quarterlyTotalRevenue"})
+	if err != nil || len(TimeseriesPoints(data, "quarterlyTotalRevenue")) < 4 {
+		t.Fatal("timeseries", err)
+	}
+	res, err := c.ChartRange(ctx, "AAPL", ChartParams{Range: "1y", Interval: "1wk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adj := AtMidnight(res.AutoAdjusted())
+	last := adj[len(adj)-1]
+	if last.Time.Hour() != 0 || last.Close != res.Bars[len(res.Bars)-1].AdjClose {
+		t.Fatalf("ajuste: %+v", last)
+	}
+	t.Logf("AAPL divY %.2f%% PEG %v; última semana %s", info["dividendYield"], info["trailingPegRatio"], last.Time.Format("2006-01-02 MST"))
+}

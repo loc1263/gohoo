@@ -19,13 +19,13 @@ aditivos**, mismos valores por defecto, sin dependencias, pruebas sin red y `api
 | 4 | `WithLimiter` / `WithRequestHook` | Envoltorios de tráfico que duplican las firmas del cliente | **v0.4.0** |
 | 4b | `RetryPolicy.RateLimit` (presupuesto y backoff propios para 429) | Bucles de reintento ante 429 alrededor de cada llamada | **v0.4.0** |
 | 8 | `WithRetryPolicyContext` (política por llamada) | Modos "interactivos" propios por `context` | **v0.4.0** (adelantado: lo necesita 4b) |
-| 5 | `Info` / `FlattenInfo` (estilo yfinance, opciones explícitas) | Aplanado propio de `quoteSummary` | v0.5.0 |
-| 6 | `TimeseriesPoints` / `TrailingPEG` | Lectura propia de fundamentals-timeseries | v0.5.0 |
-| 7 | `Bar.Date()` / `ChartResult.AutoAdjusted()` | `AutoAdjust` propio | v0.5.0 |
+| 5 | `Info` / `FlattenInfo` (estilo yfinance, opciones explícitas) | Aplanado propio de `quoteSummary` | **v0.5.0** |
+| 6 | `TimeseriesPoints` / `TrailingPEG` | Lectura propia de fundamentals-timeseries | **v0.5.0** |
+| 7 | `Bar.Date()` / `ChartResult.AutoAdjusted()` | `AutoAdjust` propio | **v0.5.0** |
 | 9 | Indicadores sobre `[]Bar` | `ComputeIndicators` solo acepta `[]OHLCV` con `interface{}` | v0.6.0 |
 | 10 | Fixtures grabados, `-tags live`, validación de `Range`/`Interval`, CI con lint y Windows | — | continuo |
 
-Las secciones 3 y 4 detallan v0.3.0 y la sección 6, v0.4.0; el resto se diseña en detalle al llegar a su versión.
+Las secciones 3 y 4 detallan v0.3.0, la 6 v0.4.0 y la 7 v0.5.0; el resto se diseña en detalle al llegar a su versión.
 
 ## 3. Petición autenticada genérica (v0.3.0)
 
@@ -167,3 +167,20 @@ func RetryPolicyFromContext(ctx context.Context) (RetryPolicy, bool)
 ### 6.4 Compatibilidad verificada
 
 `apidiff -incompatible` contra v0.2.1 y v0.3.0: sin cambios incompatibles. Los tests existentes no se modificaron.
+
+## 7. v0.5.0: `Info`, fundamentals tipados y `auto_adjust`
+
+Lógica que los proyectos replicaban sobre las respuestas crudas, ahora en la librería con tests sobre respuestas reales
+(`testdata/quotesummary_copec_sn.json`, `quotesummary_spy.json`, `timeseries_aapl.json`).
+
+- **`FlattenInfo(qs, opts...)` / `Client.Info`**: prioridad de módulos `InfoModules()` (una función, para que ningún paquete
+  altere el valor por defecto de otro), primera aparición gana, `RawValue` en cada valor. Las transformaciones estilo yfinance
+  son **opcionales**: `InfoPercentYield` (×100, con `yield` de respaldo) e `InfoWithTrailingPEG`. Sin opciones el resultado es
+  el dato de Yahoo tal cual. `InfoWithModules` cambia la lista y su orden.
+- **`TimeseriesPoints` / `Point` / `Client.TrailingPEG`**: más reciente primero; `Point` trae `PeriodType` y `Currency`.
+- **`AutoAdjust` / `ChartResult.AutoAdjusted` / `Bar.Date` / `AtMidnight`**: el ajuste de precios y la normalización a
+  fecha son funciones separadas (la segunda no sirve para velas intradía); un proyecto que quiera ambas las compone.
+- Los proyectos que llaman a Yahoo a través de su propia interfaz (para probar con falsos) usan las funciones puras
+  (`FlattenInfo`, `TimeseriesPoints`) sobre sus respuestas, en vez de los métodos del cliente.
+
+`apidiff -incompatible` contra v0.2.1 y v0.4.0: sin cambios incompatibles.
