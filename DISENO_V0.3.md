@@ -15,16 +15,17 @@ aditivos**, mismos valores por defecto, sin dependencias, pruebas sin red y `api
 |---|---|---|---|
 | 1 | `GetJSON` / `PostJSON`: petición autenticada genérica | Copias de la sesión cookie + crumb para llamar endpoints no cubiertos | **v0.3.0** |
 | 2 | `Screen` / `ScreenPredefined` + constructor de queries | Screener propio (Fog Radar: `internal/yahoo/screener.go`) | **v0.3.0** |
-| 3 | `Quote` en lote (`/v7/finance/quote`) | Un `quoteSummary` por símbolo para market cap / precio spot | v0.4.0 |
-| 4 | `WithLimiter` / `WithRequestHook` | Envoltorios de tráfico que duplican las firmas del cliente | v0.4.0 |
-| 5 | `Info` / `FlattenInfo` (estilo yfinance, opciones explícitas) | Aplanado propio de `quoteSummary` | v0.4.0 |
+| 3 | `Quotes` en lote (`/v7/finance/quote`) | Un `quoteSummary` por símbolo para market cap / precio spot | **v0.4.0** |
+| 4 | `WithLimiter` / `WithRequestHook` | Envoltorios de tráfico que duplican las firmas del cliente | **v0.4.0** |
+| 4b | `RetryPolicy.RateLimit` (presupuesto y backoff propios para 429) | Bucles de reintento ante 429 alrededor de cada llamada | **v0.4.0** |
+| 8 | `WithRetryPolicyContext` (política por llamada) | Modos "interactivos" propios por `context` | **v0.4.0** (adelantado: lo necesita 4b) |
+| 5 | `Info` / `FlattenInfo` (estilo yfinance, opciones explícitas) | Aplanado propio de `quoteSummary` | v0.5.0 |
 | 6 | `TimeseriesPoints` / `TrailingPEG` | Lectura propia de fundamentals-timeseries | v0.5.0 |
 | 7 | `Bar.Date()` / `ChartResult.AutoAdjusted()` | `AutoAdjust` propio | v0.5.0 |
-| 8 | `WithRetryPolicyContext` (política por llamada) | Modos "interactivos" propios por `context` | v0.5.0 |
-| 9 | Indicadores sobre `[]Bar` | `ComputeIndicators` solo acepta `[]OHLCV` con `interface{}` | v0.5.0 |
+| 9 | Indicadores sobre `[]Bar` | `ComputeIndicators` solo acepta `[]OHLCV` con `interface{}` | v0.6.0 |
 | 10 | Fixtures grabados, `-tags live`, validación de `Range`/`Interval`, CI con lint y Windows | — | continuo |
 
-Las secciones 3 y 4 detallan lo implementado en v0.3.0; el resto se diseña en detalle al llegar a su versión.
+Las secciones 3 y 4 detallan v0.3.0 y la sección 6, v0.4.0; el resto se diseña en detalle al llegar a su versión.
 
 ## 3. Petición autenticada genérica (v0.3.0)
 
@@ -99,3 +100,70 @@ Validación previa a la red: query no vacía (tampoco anidada), `0 ≤ Size ≤ 
 - `apidiff -incompatible` contra v0.2.1: sin cambios incompatibles (solo símbolos agregados).
 - Tests existentes sin modificar, en verde con `-race`.
 - `go.mod` sin dependencias nuevas.
+
+## 6. v0.4.0: cotizaciones en lote y control de tráfico
+
+Objetivo: que un proyecto pueda aplicar su política de tráfico (espaciado global, contadores, backoff largo ante 429,
+modo interactivo) **dentro** de gohoo, por intento HTTP, en vez de envolver cada llamada desde fuera.
+
+### 6.1 `Quotes`
+
+```go
+const QuoteBatchSize = 100
+type Quote struct {
+    Symbol, ShortName, LongName, QuoteType, Exchange, FullExchangeName, Currency, MarketState string
+    Price, PreviousClose, Change, ChangePercent, Open, DayHigh, DayLow, Volume, MarketCap float64
+    Time time.Time // regularMarketTime en la zona del exchange
+    Raw  map[string]any
+}
+func (c *Client) Quotes(ctx context.Context, symbols []string) ([]Quote, error)
+```
+
+- `GET /v7/finance/quote?symbols=A,B,…&formatted=false&crumb=…` (verificado el 2026-10-12: requiere crumb; 300 símbolos en
+  una llamada funcionan; se usan lotes de 100 por prudencia con el largo de URL).
+- Símbolos vacíos y repetidos se descartan; los desconocidos simplemente no vuelven (no es error).
+- Si un lote falla se devuelven los lotes anteriores junto con el error (útil en pipelines).
+- `MarketCap` está en `Currency` (p. ej. CLP para `.SN`), igual que `price.marketCap` de `quoteSummary`.
+
+### 6.2 Ganchos
+
+```go
+type Limiter interface{ Wait(ctx context.Context) error }
+type LimiterFunc func(ctx context.Context) error
+func WithLimiter(l Limiter) Option
+func WithRequestHook(fn func(RequestEvent)) Option
+type RequestEvent struct {
+    Method, Endpoint, Symbol, URL string // URL sin crumb
+    Attempt, StatusCode int
+    Duration time.Duration
+    Err error
+}
+```
+
+Ambos actúan sobre **cada** request HTTP: reintentos y bootstrap incluidos. Un error de `Limiter.Wait` termina la llamada sin
+reintentar. `Endpoint` ∈ chart, quoteSummary, fundamentals, quote, screener, getcrumb, consent, other.
+
+### 6.3 `RetryPolicy.RateLimit` y política por contexto
+
+```go
+type RetryPolicy struct { /* campos de siempre */ ; RateLimit *RateLimitPolicy }
+type RateLimitPolicy struct {
+    MaxRetries int
+    BaseDelay, MaxDelay, Jitter time.Duration
+    HonorRetryAfter bool
+}
+func WithRetryPolicyContext(ctx context.Context, p RetryPolicy) context.Context
+func RetryPolicyFromContext(ctx context.Context) (RetryPolicy, bool)
+```
+
+- Con `RateLimit == nil` (por defecto) nada cambia: el 429 consume intentos de `MaxAttempts` o se devuelve si `RetryRateLimit`
+  es false.
+- Con `RateLimit`, los rate limits tienen su propio presupuesto (`MaxRetries`, no consume `MaxAttempts`) y espera
+  `min(BaseDelay·2^(n-1), MaxDelay) + U(0, Jitter)`, y al menos `Retry-After` si `HonorRetryAfter` (sin acotar). También se
+  reintentan los rate limits **informados en el cuerpo** con status 200 (`chart.error` / `finance.error` "too many…"), que
+  antes solo se devolvían como `ErrRateLimit`. Esto último solo ocurre con `RateLimit` configurado, para no cambiar el defecto.
+- La política del contexto reemplaza a la del cliente para esa llamada (p. ej. `RateLimit.MaxRetries = 0` dentro de un request web).
+
+### 6.4 Compatibilidad verificada
+
+`apidiff -incompatible` contra v0.2.1 y v0.3.0: sin cambios incompatibles. Los tests existentes no se modificaron.

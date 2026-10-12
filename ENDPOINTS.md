@@ -104,3 +104,15 @@ Cuerpo del POST:
 Respuesta: `finance.result[0]` con `start`, `count`, `total` y `quotes`. Con `formatted=false` los números vienen planos: `symbol`, `shortName`, `longName`, `quoteType`, `exchange`, `fullExchangeName`, `region`, `currency`, `marketCap`, `regularMarketPrice`, `trailingPE`, `forwardPE`, `dividendYield` (**ya en porcentaje**, a diferencia de `quoteSummary`), `fiftyTwoWeekHigh`/`Low`, promedios móviles, etc. El predefinido además trae `title`, `description` y `criteriaMeta`.
 
 Errores: `finance.result: null` + `finance.error {code, description}` con HTTP 400 (operador o campo inválido), 401 (`Invalid Crumb`) o 404 (`Not Found`, predefinido inexistente). Una query válida sin coincidencias responde 200 con `total: 0` y `quotes: []`.
+
+## 5. `quote` — cotización actual de varios símbolos
+
+```
+GET https://query2.finance.yahoo.com/v7/finance/quote?symbols={A,B,C}&formatted=false&lang=en-US&region=US&crumb={crumb}
+```
+
+Expuesto en gohoo como [`Client.Quotes`](API.md#quotes) (en lotes de 100). Requiere cookie + crumb (sin crumb válido: 401 `Unauthorized`). Acepta cientos de símbolos por llamada (300 probados).
+
+Respuesta: `quoteResponse.result` con un objeto por símbolo conocido (los desconocidos se omiten; si ninguno existe, `result: []`). Con `formatted=false` los números vienen planos. Campos principales: `symbol`, `quoteType` (`EQUITY`, `ETF`, `CURRENCY`, `INDEX`, `CRYPTOCURRENCY`, ...), `currency`, `shortName`, `longName`, `exchange`, `fullExchangeName`, `exchangeTimezoneName`, `marketState`, `regularMarketPrice`, `regularMarketPreviousClose`, `regularMarketChange`, `regularMarketChangePercent` (en %), `regularMarketOpen`/`DayHigh`/`DayLow`/`Volume`, `regularMarketTime` (epoch), `marketCap` (en `currency`; no viene en índices, monedas ni la mayoría de los ETF), `trailingPE`, `forwardPE`, `dividendYield` (en %), `fiftyTwoWeekHigh`/`Low`, `fiftyDayAverage`, `twoHundredDayAverage`, `sharesOutstanding`, `bookValue`, `priceToBook`.
+
+Errores: sin `symbols` → 400 con `finance.error {code:"Bad Request"}`.

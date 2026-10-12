@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-10-12
+
+All changes are additive: no exported signature or default behavior changed
+(checked with `apidiff` against v0.2.1 and v0.3.0).
+
+### Added
+- `Quotes`: current quotes for many symbols with `/v7/finance/quote`, in batches of `QuoteBatchSize` (100). Typed `Quote` (price, previous close, change, open/high/low, volume, market cap, currency, market state, time in the exchange's zone) plus `Raw`. Unknown symbols are skipped; on a failed batch the previous batches are returned with the error.
+- `WithLimiter` (with `Limiter` and `LimiterFunc`): called before every HTTP request, retries and session bootstrap included. An error from `Wait` ends the call without retrying.
+- `WithRequestHook` with `RequestEvent` (method, endpoint, symbol, URL without crumb, attempt, status, duration, error): called after every HTTP request.
+- `RetryPolicy.RateLimit` (`RateLimitPolicy`): rate limits get their own retry budget, which does not consume `MaxAttempts`, and their own backoff (`min(BaseDelay·2^(n-1), MaxDelay) + U(0, Jitter)`, at least `Retry-After` if `HonorRetryAfter`). With it, rate limits reported in the body with status 200 (`chart.error` / `finance.error` "too many requests") are retried too. With `RateLimit` nil (the default) nothing changes.
+- `WithRetryPolicyContext` and `RetryPolicyFromContext`: per-call retry policy that overrides the client's.
+
 ## [0.3.0] - 2026-10-12
 
 All changes are additive: no exported signature or default behavior changed

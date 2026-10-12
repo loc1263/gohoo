@@ -55,3 +55,29 @@ func TestLiveScreen(t *testing.T) {
 	}
 	t.Logf("mega-cap EEUU: %d; primero %s; most_actives: %s", res.Total, res.Quotes[0].Symbol, pre.Quotes[0].Symbol)
 }
+
+func TestLiveQuotesAndHooks(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	var events []RequestEvent
+	c, err := NewClientWithOptions(WithLazyBootstrap(), WithRequestHook(func(ev RequestEvent) { events = append(events, ev) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	qs, err := c.Quotes(ctx, []string{"AAPL", "SQM-B.SN", "CLP=X", "^VIX", "NOEXISTE123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]Quote{}
+	for _, q := range qs {
+		by[q.Symbol] = q
+	}
+	if len(qs) != 4 || by["AAPL"].MarketCap <= 0 || by["SQM-B.SN"].Currency != "CLP" || by["CLP=X"].Price <= 0 || by["^VIX"].Price <= 0 {
+		t.Fatalf("quotes = %+v", qs)
+	}
+	last := events[len(events)-1]
+	if last.Endpoint != "quote" || last.StatusCode != 200 {
+		t.Errorf("último evento = %+v", last)
+	}
+	t.Logf("AAPL %.2f %s, CLP=X %.2f, %d requests (con bootstrap)", by["AAPL"].Price, by["AAPL"].Time.Format(time.RFC3339), by["CLP=X"].Price, len(events))
+}

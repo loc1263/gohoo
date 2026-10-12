@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -108,8 +109,13 @@ func (c *Client) ChartRange(ctx context.Context, ticker string, p ChartParams) (
 	if err != nil {
 		return nil, fmt.Errorf("chart de %s: %w", ticker, err)
 	}
-	body, err := c.doGetAuthed(ctx, func() string {
+	body, err := c.doAuthedCheck(ctx, http.MethodGet, func() string {
 		return fmt.Sprintf("%s/v8/finance/chart/%s?%s", c.baseURL(), url.PathEscape(ticker), query)
+	}, nil, func(b []byte) error {
+		if parsed, ok := parseChartBody(b); ok && parsed.Chart.Error != nil {
+			return chartAPIError(ticker, parsed.Chart.Error.Code, parsed.Chart.Error.Description)
+		}
+		return nil
 	})
 	if err != nil {
 		// Un 404 de chart suele traer el detalle en el cuerpo JSON.

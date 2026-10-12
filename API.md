@@ -20,6 +20,8 @@ import "github.com/loc1263/gohoo"
   - [ChartResult.Monthly](#chartresultmonthly)
   - [GetJSON y PostJSON](#getjson-y-postjson)
   - [Screen y ScreenPredefined](#screen-y-screenpredefined)
+  - [Quotes](#quotes)
+  - [WithLimiter y WithRequestHook](#withlimiter-y-withrequesthook)
 - [Indicadores técnicos](#indicadores-técnicos)
 - [Detección de huecos](#detección-de-huecos)
 - [Tipos](#tipos)
@@ -278,6 +280,78 @@ for _, q := range res.Quotes {
 }
 ```
 
+### Quotes
+
+```go
+const QuoteBatchSize = 100
+
+func (c *Client) Quotes(ctx context.Context, symbols []string) ([]Quote, error)
+
+type Quote struct {
+    Symbol, ShortName, LongName, QuoteType string // QuoteType: EQUITY, ETF, CURRENCY, INDEX, CRYPTOCURRENCY...
+    Exchange, FullExchangeName, Currency    string
+    MarketState                             string // REGULAR, PRE, POST, CLOSED...
+    Price, PreviousClose, Change            float64 // regularMarket*
+    ChangePercent                           float64 // en porcentaje
+    Open, DayHigh, DayLow, Volume           float64
+    MarketCap                               float64 // en Currency; 0 en índices, monedas y la mayoría de los ETF
+    Time                                    time.Time // regularMarketTime en la zona del exchange
+    Raw                                     map[string]any
+}
+```
+
+Cotización actual de muchos símbolos con pocas requests: llama a `/v7/finance/quote` en lotes de `QuoteBatchSize` (ver [ENDPOINTS.md](ENDPOINTS.md)). Sirve para acciones, ETFs, índices (`^VIX`), monedas (`CLP=X`) y cripto (`BTC-USD`).
+
+- Los símbolos vacíos y repetidos se descartan; los que Yahoo no conoce no aparecen en el resultado (no es un error).
+- El orden es el de Yahoo: para buscar por símbolo, indexar por `Quote.Symbol`.
+- Si un lote falla, devuelve las cotizaciones de los lotes anteriores junto con el error.
+- `MarketCap` viene en la moneda de cotización (p. ej. CLP para `SQM-B.SN`), igual que `price.marketCap` de `quoteSummary`.
+
+```go
+qs, err := client.Quotes(ctx, []string{"AAPL", "SQM-B.SN", "CLP=X", "^VIX"})
+for _, q := range qs {
+    fmt.Println(q.Symbol, q.Price, q.Currency, q.MarketCap)
+}
+```
+
+### WithLimiter y WithRequestHook
+
+```go
+type Limiter interface{ Wait(ctx context.Context) error } // golang.org/x/time/rate.Limiter lo cumple
+type LimiterFunc func(ctx context.Context) error
+
+func WithLimiter(l Limiter) Option
+func WithRequestHook(fn func(RequestEvent)) Option
+
+type RequestEvent struct {
+    Method     string
+    Endpoint   string // chart, quoteSummary, fundamentals, quote, screener, getcrumb, consent, other
+    Symbol     string // ticker de la URL (en quote, la lista; en un screener predefinido, su id)
+    URL        string // sin el crumb
+    Attempt    int    // 1 = primer intento de la llamada
+    StatusCode int    // 0 si no hubo respuesta
+    Duration   time.Duration
+    Err        error  // nil si respondió 200; *StatusError si no
+}
+```
+
+Ganchos para aplicar una política de tráfico propia **dentro** del cliente, sobre cada request HTTP (incluidos los reintentos y el bootstrap de cookie+crumb):
+
+- `WithLimiter`: `Wait` se llama antes de cada request; sirve para espaciar las requests de todo un proceso (un mismo `Limiter` puede compartirse entre clientes). Si devuelve error, la llamada termina con ese error sin reintentar.
+- `WithRequestHook`: `fn` se llama después de cada request con su resultado, para métricas o logs (p. ej. contar los 429). Se llama desde la goroutine de la request: debe ser seguro para uso concurrente y rápido.
+
+```go
+var n429 atomic.Int64
+client, err := gohoo.NewClientWithOptions(
+    gohoo.WithLimiter(rate.NewLimiter(rate.Every(350*time.Millisecond), 1)),
+    gohoo.WithRequestHook(func(ev gohoo.RequestEvent) {
+        if ev.StatusCode == http.StatusTooManyRequests {
+            n429.Add(1)
+        }
+    }),
+)
+```
+
 ---
 
 ## Indicadores técnicos
@@ -364,12 +438,40 @@ type RetryPolicy struct {
     RetryRateLimit  bool          // reintentar HTTP 429
     HonorRetryAfter bool          // esperar al menos lo que pida Retry-After
     OnRetry         func(attempt int, err error, delay time.Duration)
+    RateLimit       *RateLimitPolicy // nil = los 429 se tratan con los campos de arriba
+}
+
+type RateLimitPolicy struct {
+    MaxRetries      int           // reintentos ante rate limit; 0 = devolverlo de inmediato
+    BaseDelay       time.Duration // espera antes del primer reintento; se duplica
+    MaxDelay        time.Duration // tope de la parte exponencial; 0 = sin tope
+    Jitter          time.Duration // + espera aleatoria entre 0 y Jitter
+    HonorRetryAfter bool          // esperar al menos Retry-After (sin acotar)
 }
 
 func DefaultRetryPolicy() RetryPolicy // 4 intentos, 200ms, RetryRateLimit: true
+
+func WithRetryPolicyContext(ctx context.Context, p RetryPolicy) context.Context
+func RetryPolicyFromContext(ctx context.Context) (RetryPolicy, bool)
 ```
 
 Los booleanos se toman tal cual, así que para cambiar un solo campo conviene partir de `DefaultRetryPolicy()`. `OnRetry` recibe el número del intento que falló (1 = el primero). El jitter usa un generador propio del cliente, no el global.
+
+**`RateLimit`** separa los rate limits del resto de las fallas: con él, un HTTP 429 (o un "too many requests" informado en el cuerpo de `ChartRange`, `Screen` o `Quotes` con status 200) se reintenta hasta `MaxRetries` veces **sin consumir `MaxAttempts`**, esperando `min(BaseDelay·2^(n-1), MaxDelay) + U(0, Jitter)` (y al menos `Retry-After` si `HonorRetryAfter`). `RetryRateLimit`, `BaseDelay`, `MaxDelay` y `Jitter` de `RetryPolicy` dejan de aplicarse a los 429. Agotado el presupuesto, el error es `rate limit: agotados N reintentos: ...` y cumple `errors.Is(err, ErrRateLimit)`.
+
+**`WithRetryPolicyContext`** fija la política de las llamadas hechas con ese contexto, en lugar de la del cliente: por ejemplo, reintentos pacientes en un proceso batch y ninguna espera larga dentro de un request web, sobre el mismo `Client`.
+
+```go
+batch := gohoo.RetryPolicy{
+    MaxAttempts: 3, BaseDelay: 200 * time.Millisecond,
+    RateLimit:   &gohoo.RateLimitPolicy{MaxRetries: 3, BaseDelay: 5 * time.Second, MaxDelay: time.Minute, Jitter: time.Second, HonorRetryAfter: true},
+}
+client, _ := gohoo.NewClientWithOptions(gohoo.WithRetryPolicy(batch))
+
+web := batch
+web.RateLimit = &gohoo.RateLimitPolicy{} // el 429 se devuelve de inmediato
+res, err := client.ChartRange(gohoo.WithRetryPolicyContext(r.Context(), web), "AAPL", gohoo.ChartParams{Range: "1y"})
+```
 
 ---
 

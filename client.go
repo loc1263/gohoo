@@ -69,13 +69,35 @@ func (c *Client) doGet(ctx context.Context, rawURL string) ([]byte, error) {
 // do hace una request con el User-Agent del cliente. body, si no es nil, se
 // manda como JSON; se relee en cada llamada, así que do se puede reintentar.
 func (c *Client) do(ctx context.Context, method, rawURL string, body []byte) ([]byte, error) {
+	return c.doAttempt(ctx, method, rawURL, body, 1)
+}
+
+// doAttempt es do con el número de intento (para RequestEvent): espera al
+// Limiter, si hay, antes de la request y avisa al hook de requests después.
+func (c *Client) doAttempt(ctx context.Context, method, rawURL string, body []byte, attempt int) ([]byte, error) {
+	if l := c.conf().limiter; l != nil {
+		if err := l.Wait(ctx); err != nil {
+			return nil, &limiterError{err}
+		}
+	}
+	start := time.Now()
+	respBody, status, err := c.roundTrip(ctx, method, rawURL, body)
+	if hook := c.conf().requestHook; hook != nil {
+		hook(newRequestEvent(method, rawURL, c.consentURL(), attempt, status, time.Since(start), err))
+	}
+	return respBody, err
+}
+
+// roundTrip hace la request HTTP y devuelve el cuerpo, el status (0 si no
+// hubo respuesta) y un *StatusError si el status no es 200.
+func (c *Client) roundTrip(ctx context.Context, method, rawURL string, body []byte) ([]byte, int, error) {
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, rd)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("User-Agent", c.userAgent())
 	req.Header.Set("Accept", "*/*")
@@ -84,22 +106,22 @@ func (c *Client) do(ctx context.Context, method, rawURL string, body []byte) ([]
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, resp.StatusCode, err
 	}
 	if resp.StatusCode != 200 {
-		return respBody, &httpStatusError{
+		return respBody, resp.StatusCode, &httpStatusError{
 			StatusCode: resp.StatusCode,
 			URL:        rawURL,
 			Body:       string(respBody[:min(len(respBody), 300)]),
 			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
 		}
 	}
-	return respBody, nil
+	return respBody, resp.StatusCode, nil
 }
 
 // doGetAuthed llama a buildURL() y hace el GET resultante, reintentando ante
@@ -116,49 +138,77 @@ func (c *Client) doGetAuthed(ctx context.Context, buildURL func() string) ([]byt
 }
 
 // doAuthed es doGetAuthed para cualquier método; body (JSON) puede ser nil.
-// Es la única implementación de los reintentos y la renovación del crumb.
 func (c *Client) doAuthed(ctx context.Context, method string, buildURL func() string, body []byte) ([]byte, error) {
-	policy := c.retryPolicy()
+	return c.doAuthedCheck(ctx, method, buildURL, body, nil)
+}
+
+// doAuthedCheck es la única implementación de los reintentos y la
+// renovación del crumb. check, si no es nil, inspecciona cada cuerpo con
+// status 200: si devuelve un error de rate limit (p. ej. un chart.error
+// "Too Many Requests") y la política tiene RateLimit, se trata como un 429.
+//
+// Con RetryPolicy.RateLimit en nil el comportamiento es el de siempre: los
+// 429 consumen intentos de MaxAttempts (o se devuelven de inmediato si
+// RetryRateLimit es false). Con RateLimit, los 429 tienen su propio
+// presupuesto y backoff y no consumen MaxAttempts.
+func (c *Client) doAuthedCheck(ctx context.Context, method string, buildURL func() string, body []byte, check func([]byte) error) ([]byte, error) {
+	policy := c.retryPolicyFor(ctx)
+	rl := policy.RateLimit
 	var lastErr error
-	var lastStatus *httpStatusError
-	for attempt := range policy.MaxAttempts {
-		if attempt > 0 {
-			d := policy.delay(attempt, lastStatus, c.rnd.Float64)
+	var wait time.Duration
+	attempts, rlRetries := 0, 0 // intentos que cuentan para MaxAttempts; reintentos por 429
+	for done := 0; ; done++ {
+		if done > 0 {
 			if policy.OnRetry != nil {
-				policy.OnRetry(attempt, lastErr, d)
+				policy.OnRetry(done, lastErr, wait)
 			}
-			if err := c.sleep(ctx, d); err != nil {
-				return nil, fmt.Errorf("cancelado tras %d intentos: %w (último error: %w)", attempt, err, lastErr)
+			if err := c.sleep(ctx, wait); err != nil {
+				return nil, fmt.Errorf("cancelado tras %d intentos: %w (último error: %w)", done, err, lastErr)
 			}
 		}
-		respBody, err := c.do(ctx, method, buildURL(), body)
+		respBody, err := c.doAttempt(ctx, method, buildURL(), body, done+1)
+		if err == nil && check != nil && rl != nil {
+			if cerr := check(respBody); IsRateLimit(cerr) {
+				err = cerr
+			}
+		}
 		if err == nil {
 			return respBody, nil
 		}
-		if ctx.Err() != nil {
+		var limErr *limiterError
+		if ctx.Err() != nil || errors.As(err, &limErr) {
 			return nil, err
 		}
 		lastErr = err
-		lastStatus = nil
 
-		var statusErr *httpStatusError
-		if errors.As(err, &statusErr) {
-			lastStatus = statusErr
-			if statusErr.StatusCode == http.StatusUnauthorized {
+		var lastStatus *httpStatusError
+		errors.As(err, &lastStatus)
+		if rl != nil && IsRateLimit(err) {
+			if rlRetries >= rl.MaxRetries {
+				return nil, fmt.Errorf("rate limit: agotados %d reintentos: %w", rlRetries, err)
+			}
+			rlRetries++
+			wait = rl.delay(rlRetries, lastStatus, c.rnd.Float64)
+			continue
+		}
+		if lastStatus != nil {
+			switch {
+			case lastStatus.StatusCode == http.StatusUnauthorized:
 				if bootErr := c.bootstrap(ctx); bootErr != nil {
 					return nil, fmt.Errorf("re-autenticación tras HTTP 401 falló: %w", bootErr)
 				}
-				continue
-			}
-			if statusErr.StatusCode == http.StatusTooManyRequests && !policy.RetryRateLimit {
+			case lastStatus.StatusCode == http.StatusTooManyRequests && !policy.RetryRateLimit:
+				return nil, err
+			case !isRetryableStatus(lastStatus.StatusCode):
 				return nil, err
 			}
-			if !isRetryableStatus(statusErr.StatusCode) {
-				return nil, err
-			}
-			continue
 		}
-		// Error de red (timeout, conexión reiniciada, DNS, etc.): reintentable.
+		// Si no hubo status: error de red (timeout, conexión reiniciada, DNS, etc.), reintentable.
+		attempts++
+		if attempts >= policy.MaxAttempts {
+			break
+		}
+		wait = policy.delay(attempts, lastStatus, c.rnd.Float64)
 	}
 	return nil, fmt.Errorf("agotados %d intentos: %w", policy.MaxAttempts, lastErr)
 }

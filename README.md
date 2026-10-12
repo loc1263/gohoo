@@ -64,7 +64,9 @@ func main() {
 - `(*Client) Screen(ctx, p ScreenParams) (*ScreenResult, error)` — Yahoo's screener with a query builder (`Eq`, `Gt`, `Lt`, `Gte`, `Lte`, `Btwn`, `IsIn`, `And`, `Or`), paging and sorting; `ScreenPredefined(ctx, id, offset, size)` for Yahoo's saved screeners (`day_gainers`, `most_actives`, ...).
 - `(*Client) GetJSON` / `PostJSON(ctx, path, query[, body])` — authenticated request (cookie + crumb, retries, crumb refresh) to any Yahoo endpoint gohoo does not wrap yet.
 - Typed errors: `*StatusError` (with `RetryAfter`), `ErrRateLimit`, `ErrNotFound`, `ErrUnauthorized`, `IsRateLimit(err)` — they work with `errors.Is`/`errors.As` even after retries are exhausted.
-- `RetryPolicy` / `DefaultRetryPolicy()` — attempts, backoff, cap, jitter, whether to retry 429, `Retry-After`, `OnRetry` hook.
+- `RetryPolicy` / `DefaultRetryPolicy()` — attempts, backoff, cap, jitter, whether to retry 429, `Retry-After`, `OnRetry` hook; `RetryPolicy.RateLimit` gives rate limits their own retry budget and backoff, and `WithRetryPolicyContext(ctx, p)` overrides the policy for a single call.
+- `(*Client) Quotes(ctx, symbols []string) ([]Quote, error)` — current quotes (price, change, market cap, currency, ...) for many symbols, in batches of 100 per request.
+- `WithLimiter(l)` / `WithRequestHook(fn)` — run your own rate limiter before, and a metrics/log hook after, every HTTP request (retries and session bootstrap included).
 - `ComputeIndicators(series []OHLCV) []IndicatorSet` — SMA, EMA, RSI, MACD, Bollinger Bands, ATR, Stochastic, Williams %R, ADX, VWAP, OBV and derived signals.
 - `DetectGaps(series []OHLCV, factor float64) []Gap` — detects unusual gaps in a series.
 - Yahoo JSON parsing helpers: `RawValue`, `GetPath`, `Field`, `AsFloat`, `AsInt64`, `AsString`, `EpochToDate`, `EpochToDateTimeNY`, `EpochToMidnight`, `DateStringToMidnight`, `ParseDateOnly`.

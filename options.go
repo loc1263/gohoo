@@ -31,6 +31,9 @@ type config struct {
 	retry      *RetryPolicy
 	lazy       bool
 
+	limiter     Limiter
+	requestHook func(RequestEvent)
+
 	// sleep espera d o hasta que ctx termine; se reemplaza en tests para
 	// verificar los retardos sin esperar.
 	sleep func(ctx context.Context, d time.Duration) error
@@ -71,6 +74,23 @@ func WithRetryPolicy(p RetryPolicy) Option {
 // ChartRange nunca lo exigen.
 func WithLazyBootstrap() Option {
 	return func(c *config) { c.lazy = true }
+}
+
+// WithLimiter hace que el cliente llame a l.Wait antes de CADA request HTTP
+// (incluidos los reintentos y el bootstrap de cookie+crumb), para espaciar
+// o limitar el tráfico hacia Yahoo. Si Wait devuelve error, la llamada
+// termina con ese error, sin reintentar. Un mismo Limiter puede
+// compartirse entre varios clientes.
+func WithLimiter(l Limiter) Option {
+	return func(c *config) { c.limiter = l }
+}
+
+// WithRequestHook hace que el cliente llame a fn después de CADA request
+// HTTP (incluidos los reintentos y el bootstrap), con su resultado. fn se
+// llama desde la goroutine de la request y debe ser seguro para uso
+// concurrente y rápido.
+func WithRequestHook(fn func(RequestEvent)) Option {
+	return func(c *config) { c.requestHook = fn }
 }
 
 // NewClientWithOptions crea un Client configurable. Sin opciones se comporta

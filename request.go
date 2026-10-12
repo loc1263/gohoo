@@ -20,7 +20,7 @@ import (
 // ante un HTTP 401. Una respuesta distinta de 200 se devuelve como
 // *StatusError (clasificable con errors.Is).
 func (c *Client) GetJSON(ctx context.Context, path string, q url.Values) ([]byte, error) {
-	return c.authedRequest(ctx, http.MethodGet, path, q, nil)
+	return c.authedRequest(ctx, http.MethodGet, path, q, nil, nil)
 }
 
 // PostJSON es GetJSON con método POST: body se serializa con
@@ -34,10 +34,11 @@ func (c *Client) PostJSON(ctx context.Context, path string, q url.Values, body a
 			return nil, fmt.Errorf("gohoo: cuerpo de %s: %w", path, err)
 		}
 	}
-	return c.authedRequest(ctx, http.MethodPost, path, q, raw)
+	return c.authedRequest(ctx, http.MethodPost, path, q, raw, nil)
 }
 
-func (c *Client) authedRequest(ctx context.Context, method, path string, q url.Values, body []byte) ([]byte, error) {
+// authedRequest es GetJSON/PostJSON con un check opcional del cuerpo (ver doAuthedCheck).
+func (c *Client) authedRequest(ctx context.Context, method, path string, q url.Values, body []byte, check func([]byte) error) ([]byte, error) {
 	endpoint, base, err := c.resolve(path, q)
 	if err != nil {
 		return nil, err
@@ -45,14 +46,14 @@ func (c *Client) authedRequest(ctx context.Context, method, path string, q url.V
 	if err := c.ensureCrumb(ctx); err != nil {
 		return nil, fmt.Errorf("%s: %w", endpoint, err)
 	}
-	return c.doAuthed(ctx, method, func() string {
+	return c.doAuthedCheck(ctx, method, func() string {
 		v := make(url.Values, len(base)+1)
 		for k, vs := range base {
 			v[k] = append([]string(nil), vs...)
 		}
 		v.Set("crumb", c.getCrumb())
 		return endpoint + "?" + v.Encode()
-	}, body)
+	}, body, check)
 }
 
 // resolve arma la URL sin query de path y une la query que traiga path con q.

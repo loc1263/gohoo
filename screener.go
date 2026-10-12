@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -190,11 +191,12 @@ func (c *Client) Screen(ctx context.Context, p ScreenParams) (*ScreenResult, err
 		"offset": p.Offset, "size": size, "sortField": p.SortField, "sortType": sortType,
 		"quoteType": p.QuoteType, "query": p.Query, "userId": "", "userIdType": "guid",
 	}
-	if _, err := json.Marshal(body); err != nil { // query mal armada (p. ej. And con una query vacía)
+	raw, err := json.Marshal(body)
+	if err != nil { // query mal armada (p. ej. And con una query vacía)
 		return nil, err
 	}
-	raw, err := c.PostJSON(ctx, "/v1/finance/screener", screenQuery(), body)
-	return parseScreen("screener", raw, err)
+	resp, err := c.authedRequest(ctx, http.MethodPost, "/v1/finance/screener", screenQuery(), raw, financeRateLimit("screener"))
+	return parseScreen("screener", resp, err)
 }
 
 // ScreenPredefined consulta un screener predefinido de Yahoo por su id
@@ -213,7 +215,7 @@ func (c *Client) ScreenPredefined(ctx context.Context, id string, offset, size i
 	q.Set("scrIds", id)
 	q.Set("count", strconv.Itoa(size))
 	q.Set("offset", strconv.Itoa(offset))
-	raw, err := c.GetJSON(ctx, "/v1/finance/screener/predefined/saved", q)
+	raw, err := c.authedRequest(ctx, http.MethodGet, "/v1/finance/screener/predefined/saved", q, nil, financeRateLimit("screener "+id))
 	return parseScreen("screener "+id, raw, err)
 }
 
@@ -253,7 +255,7 @@ func parseScreen(what string, raw []byte, err error) (*ScreenResult, error) {
 		if errors.As(err, &se) {
 			var r screenResponse
 			if json.Unmarshal([]byte(se.Body), &r) == nil && r.Finance.Error != nil {
-				return nil, fmt.Errorf("%w (%w)", screenAPIError(what, r.Finance.Error.Code, r.Finance.Error.Description), err)
+				return nil, fmt.Errorf("%w (%w)", financeAPIError(what, r.Finance.Error.Code, r.Finance.Error.Description), err)
 			}
 		}
 		return nil, err
@@ -263,7 +265,7 @@ func parseScreen(what string, raw []byte, err error) (*ScreenResult, error) {
 		return nil, fmt.Errorf("no se pudo parsear la respuesta del %s: %w", what, err)
 	}
 	if e := r.Finance.Error; e != nil {
-		return nil, screenAPIError(what, e.Code, e.Description)
+		return nil, financeAPIError(what, e.Code, e.Description)
 	}
 	if len(r.Finance.Result) == 0 {
 		return nil, fmt.Errorf("%s: %w", what, ErrEmptyScreen)
@@ -297,7 +299,25 @@ func newScreenQuote(m map[string]any) ScreenQuote {
 	}
 }
 
-func screenAPIError(what, code, description string) error {
+// financeRateLimit es el check de doAuthedCheck para respuestas con
+// {"finance":{"error":...}}: detecta un rate limit informado en el cuerpo.
+func financeRateLimit(what string) func([]byte) error {
+	return func(b []byte) error {
+		var r struct {
+			Finance struct {
+				Error *struct{ Code, Description string } `json:"error"`
+			} `json:"finance"`
+		}
+		if json.Unmarshal(b, &r) == nil && r.Finance.Error != nil {
+			return financeAPIError(what, r.Finance.Error.Code, r.Finance.Error.Description)
+		}
+		return nil
+	}
+}
+
+// financeAPIError convierte un {"finance":{"error":{...}}} de Yahoo en un
+// error clasificable con errors.Is.
+func financeAPIError(what, code, description string) error {
 	msg := strings.TrimSpace(code + ": " + description)
 	lower := strings.ToLower(msg)
 	switch {
