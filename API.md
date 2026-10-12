@@ -26,6 +26,8 @@ import "github.com/loc1263/gohoo"
   - [TimeseriesPoints y TrailingPEG](#timeseriespoints-y-trailingpeg)
   - [AutoAdjust, Bar.Date y AtMidnight](#autoadjust-bardate-y-atmidnight)
 - [Indicadores técnicos](#indicadores-técnicos)
+  - [Sobre barras tipadas y con períodos configurables](#sobre-barras-tipadas-y-con-períodos-configurables)
+  - [Métricas de riesgo](#métricas-de-riesgo)
 - [Detección de huecos](#detección-de-huecos)
 - [Tipos](#tipos)
   - [OHLCV](#ohlcv)
@@ -431,6 +433,59 @@ Calcula SMA20, EMA12/26, RSI14, MACD(12,26,9), Bandas de Bollinger(20,2), ATR14,
 series, _, _, _ := client.ChartSeries("AAPL", "1y", "1d")
 ind := gohoo.ComputeIndicators(series)
 fmt.Println(ind[len(ind)-1].RSI14)
+```
+
+### Sobre barras tipadas y con períodos configurables
+
+```go
+func ComputeIndicatorsBars(bars []Bar) []IndicatorSet // lo mismo que ComputeIndicators, desde []Bar
+
+func Opens(bars []Bar) []float64 // también Highs, Lows, Closes, AdjCloses, Volumes
+
+func SMA(values []float64, period int) []float64
+func EMA(values []float64, period int) []float64
+func RSI(closes []float64, period int) []float64
+func MACD(closes []float64, fast, slow, signal int) (line, sig, hist []float64)
+func Bollinger(closes []float64, period int, numStdDev float64) (upper, middle, lower []float64)
+func ATR(highs, lows, closes []float64, period int) []float64
+func Stochastic(highs, lows, closes []float64, kPeriod, dPeriod int) (k, d []float64)
+func WilliamsR(highs, lows, closes []float64, period int) []float64
+func ADX(highs, lows, closes []float64, period int) []float64
+func OBV(closes, volumes []float64) []float64
+func VWAP(highs, lows, closes, volumes []float64) []float64
+func Crossovers(fast, slow []float64) []int // +1 cruce hacia arriba, -1 hacia abajo, 0 sin cruce
+```
+
+`ComputeIndicatorsBars` da exactamente el mismo `IndicatorSet` que `ComputeIndicators` para los mismos datos; usa los precios tal cual vienen (para precios ajustados, pasar `AutoAdjust(bars)`). Las funciones sueltas son los mismos cálculos con el período que se quiera: `SMA(closes, 20)` coincide con `IndicatorSet.SMA20`, `MACD(closes, 12, 26, 9)` con `MACD`/`MACDSignal`/`MACDHist`, etc.
+
+- El resultado está alineado por índice con la entrada; los puntos sin historia suficiente son `math.NaN()`.
+- Un período < 1 devuelve todo NaN; si las columnas no tienen el mismo largo, el resultado es `nil`.
+- Un NaN en la entrada se propaga: en las medias móviles, a cada ventana que lo contiene; en las que acumulan (EMA, RSI, ATR, ADX, MACD, OBV, VWAP), a todos los puntos siguientes.
+
+```go
+bars := res.AutoAdjusted()
+closes := gohoo.Closes(bars)
+cruces := gohoo.Crossovers(gohoo.SMA(closes, 50), gohoo.SMA(closes, 200)) // golden/death cross 50/200
+rsi7 := gohoo.RSI(closes, 7)
+```
+
+### Métricas de riesgo
+
+```go
+func Returns(values []float64) []float64    // v[i]/v[i-1] - 1; el primero es NaN
+func LogReturns(values []float64) []float64 // ln(v[i]/v[i-1])
+func Volatility(returns []float64, periodsPerYear float64) float64
+func MaxDrawdown(values []float64) (dd float64, peak, trough int)
+```
+
+- `Returns` / `LogReturns`: alineados con la entrada; NaN en el primero y donde el valor o el anterior son NaN o el anterior es 0.
+- `Volatility`: desviación estándar muestral (n-1) de los retornos no NaN, anualizada con `sqrt(periodsPerYear)` (252 diarios, 52 semanales, 12 mensuales; 1 para no anualizar). NaN con menos de dos retornos.
+- `MaxDrawdown`: mayor caída desde un máximo previo como fracción ≤ 0 (-0,25 = -25 %), con los índices del máximo y del mínimo; ignora NaN. Sin caídas, `(0, -1, -1)`.
+
+```go
+closes := gohoo.Closes(res.AutoAdjusted())
+vol := gohoo.Volatility(gohoo.Returns(closes), 252)
+dd, desde, hasta := gohoo.MaxDrawdown(closes)
 ```
 
 ## Detección de huecos

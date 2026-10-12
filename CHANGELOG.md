@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-10-12
+
+All changes are additive: no exported signature or default behavior changed
+(checked with `apidiff` against v0.2.1 and v0.5.0; `ComputeIndicators` output is byte-for-byte identical to v0.5.0).
+
+### Added
+- `ComputeIndicatorsBars`: the same indicator set as `ComputeIndicators`, computed from typed `[]Bar` (e.g. `ChartRange` results).
+- Standalone indicators with configurable periods over `[]float64`: `SMA`, `EMA`, `RSI`, `MACD`, `Bollinger`, `ATR`, `Stochastic`, `WilliamsR`, `ADX`, `OBV`, `VWAP` and `Crossovers` (+1/-1 crossings). A period < 1 returns all NaN; mismatched column lengths return nil.
+- Column helpers: `Opens`, `Highs`, `Lows`, `Closes`, `AdjCloses`, `Volumes`.
+- Basic risk metrics: `Returns`, `LogReturns`, `Volatility` (annualized sample standard deviation) and `MaxDrawdown` (with peak and trough indices).
+
+### Changed
+- Internal only: `ComputeIndicators` delegates to a shared implementation over columns.
+
 ## [0.5.0] - 2026-10-12
 
 All changes are additive: no exported signature or default behavior changed

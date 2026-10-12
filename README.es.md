@@ -71,6 +71,8 @@ func main() {
 - `AutoAdjust(bars)` / `(*ChartResult) AutoAdjusted()`, `Bar.Date()` y `AtMidnight(bars)` — `auto_adjust` estilo yfinance y barras indexadas por fecha.
 - `WithLimiter(l)` / `WithRequestHook(fn)` — un limitador propio antes, y un hook de métricas/logs después, de cada request HTTP (reintentos y bootstrap de sesión incluidos).
 - `ComputeIndicators(series []OHLCV) []IndicatorSet` — SMA, EMA, RSI, MACD, Bollinger, ATR, Estocástico, Williams %R, ADX, VWAP, OBV y señales derivadas.
+- `ComputeIndicatorsBars(bars []Bar) []IndicatorSet` más indicadores sueltos con períodos configurables (`SMA`, `EMA`, `RSI`, `MACD`, `Bollinger`, `ATR`, `Stochastic`, `WilliamsR`, `ADX`, `OBV`, `VWAP`, `Crossovers`) sobre columnas de `Closes`, `Highs`, `Lows`, `Volumes`...
+- Métricas de riesgo: `Returns`, `LogReturns`, `Volatility` (anualizada) y `MaxDrawdown`.
 - `DetectGaps(series []OHLCV, factor float64) []Gap` — detecta huecos inusuales en una serie.
 - Helpers de parseo de JSON de Yahoo: `RawValue`, `GetPath`, `Field`, `AsFloat`, `AsInt64`, `AsString`, `EpochToDate`, `EpochToDateTimeNY`, `EpochToMidnight`, `DateStringToMidnight`, `ParseDateOnly`.
 

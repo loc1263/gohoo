@@ -22,10 +22,10 @@ aditivos**, mismos valores por defecto, sin dependencias, pruebas sin red y `api
 | 5 | `Info` / `FlattenInfo` (estilo yfinance, opciones explícitas) | Aplanado propio de `quoteSummary` | **v0.5.0** |
 | 6 | `TimeseriesPoints` / `TrailingPEG` | Lectura propia de fundamentals-timeseries | **v0.5.0** |
 | 7 | `Bar.Date()` / `ChartResult.AutoAdjusted()` | `AutoAdjust` propio | **v0.5.0** |
-| 9 | Indicadores sobre `[]Bar` | `ComputeIndicators` solo acepta `[]OHLCV` con `interface{}` | v0.6.0 |
+| 9 | Indicadores sobre `[]Bar`, con períodos configurables, y métricas de riesgo | `ComputeIndicators` solo acepta `[]OHLCV` con `interface{}` y períodos fijos | **v0.6.0** |
 | 10 | Fixtures grabados, `-tags live`, validación de `Range`/`Interval`, CI con lint y Windows | — | continuo |
 
-Las secciones 3 y 4 detallan v0.3.0, la 6 v0.4.0 y la 7 v0.5.0; el resto se diseña en detalle al llegar a su versión.
+Las secciones 3 y 4 detallan v0.3.0, la 6 v0.4.0, la 7 v0.5.0 y la 8 v0.6.0; el resto se diseña en detalle al llegar a su versión.
 
 ## 3. Petición autenticada genérica (v0.3.0)
 
@@ -184,3 +184,16 @@ Lógica que los proyectos replicaban sobre las respuestas crudas, ahora en la li
   (`FlattenInfo`, `TimeseriesPoints`) sobre sus respuestas, en vez de los métodos del cliente.
 
 `apidiff -incompatible` contra v0.2.1 y v0.4.0: sin cambios incompatibles.
+
+## 8. v0.6.0: indicadores sobre `[]Bar` y métricas de riesgo
+
+- **`ComputeIndicatorsBars([]Bar)`**: mismo `IndicatorSet` que `ComputeIndicators`. Ambas delegan en una implementación
+  común sobre columnas; la salida de `ComputeIndicators` se comparó byte a byte contra v0.5.0 (120 barras, con un volumen nulo).
+- **Indicadores sueltos con períodos configurables** sobre `[]float64` (`SMA`, `EMA`, `RSI`, `MACD`, `Bollinger`, `ATR`,
+  `Stochastic`, `WilliamsR`, `ADX`, `OBV`, `VWAP`) y `Crossovers` con resultado numérico (+1/-1/0) en lugar de las
+  señales en texto de `IndicatorSet`. Reglas uniformes: alineados con la entrada, NaN sin historia, período < 1 → todo
+  NaN, largos distintos → nil.
+- **Columnas** (`Opens`, `Highs`, `Lows`, `Closes`, `AdjCloses`, `Volumes`) para pasar de `[]Bar` a `[]float64`.
+- **Métricas de riesgo**: `Returns`, `LogReturns`, `Volatility` (muestral, anualizada) y `MaxDrawdown` (con índices).
+
+`apidiff -incompatible` contra v0.2.1 y v0.5.0: sin cambios incompatibles.

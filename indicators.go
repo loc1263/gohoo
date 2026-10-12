@@ -52,29 +52,18 @@ func ComputeIndicators(series []OHLCV) []IndicatorSet {
 		closes[i], _ = AsFloat(bar.Close)
 		volumes[i], _ = AsFloat(bar.Volume)
 	}
+	return computeIndicators(highs, lows, closes, volumes)
+}
 
+// computeIndicators es ComputeIndicators sobre columnas ya extraídas (del
+// mismo largo).
+func computeIndicators(highs, lows, closes, volumes []float64) []IndicatorSet {
+	n := len(closes)
 	sma20 := sma(closes, 20)
 	ema12 := ema(closes, 12)
 	ema26 := ema(closes, 26)
 	rsi14 := rsi(closes, 14)
-
-	macdLine := make([]float64, n)
-	for i := range n {
-		if math.IsNaN(ema12[i]) || math.IsNaN(ema26[i]) {
-			macdLine[i] = math.NaN()
-		} else {
-			macdLine[i] = ema12[i] - ema26[i]
-		}
-	}
-	macdSignal := ema(macdLine, 9)
-	macdHist := make([]float64, n)
-	for i := range n {
-		if math.IsNaN(macdLine[i]) || math.IsNaN(macdSignal[i]) {
-			macdHist[i] = math.NaN()
-		} else {
-			macdHist[i] = macdLine[i] - macdSignal[i]
-		}
-	}
+	macdLine, macdSignal, macdHist := macd(ema12, ema26, 9)
 
 	bbUpper, bbMiddle, bbLower := bollinger(closes, 20, 2)
 	obvSeries := obv(closes, volumes)
@@ -112,6 +101,30 @@ func ComputeIndicators(series []OHLCV) []IndicatorSet {
 		}
 	}
 	return out
+}
+
+// macd arma la línea MACD (rápida - lenta), su señal (EMA de `signal`
+// puntos de la línea) y el histograma (línea - señal).
+func macd(fastEMA, slowEMA []float64, signal int) (line, sig, hist []float64) {
+	n := len(fastEMA)
+	line = make([]float64, n)
+	for i := range n {
+		if math.IsNaN(fastEMA[i]) || math.IsNaN(slowEMA[i]) {
+			line[i] = math.NaN()
+		} else {
+			line[i] = fastEMA[i] - slowEMA[i]
+		}
+	}
+	sig = ema(line, signal)
+	hist = make([]float64, n)
+	for i := range n {
+		if math.IsNaN(line[i]) || math.IsNaN(sig[i]) {
+			hist[i] = math.NaN()
+		} else {
+			hist[i] = line[i] - sig[i]
+		}
+	}
+	return line, sig, hist
 }
 
 // sma calcula la media móvil simple de `period` puntos; los primeros

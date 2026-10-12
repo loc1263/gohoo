@@ -6,6 +6,7 @@ package gohoo
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 )
@@ -107,4 +108,30 @@ func TestLiveInfoTimeseriesAndAdjust(t *testing.T) {
 		t.Fatalf("ajuste: %+v", last)
 	}
 	t.Logf("AAPL divY %.2f%% PEG %v; última semana %s", info["dividendYield"], info["trailingPegRatio"], last.Time.Format("2006-01-02 MST"))
+}
+
+func TestLiveIndicatorsAndQuant(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	c, err := NewClientWithOptions(WithLazyBootstrap())
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.ChartRange(ctx, "SPY", ChartParams{Range: "1y", Interval: "1d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bars := res.AutoAdjusted()
+	set := ComputeIndicatorsBars(bars)
+	last := set[len(set)-1]
+	if math.IsNaN(last.RSI14) || last.RSI14 < 0 || last.RSI14 > 100 || math.IsNaN(last.ADX14) || math.IsNaN(last.MACD) {
+		t.Fatalf("indicadores: %+v", last)
+	}
+	closes := Closes(bars)
+	vol := Volatility(Returns(closes), 252)
+	dd, _, _ := MaxDrawdown(closes)
+	if vol <= 0 || vol > 1 || dd > 0 || dd < -0.6 {
+		t.Fatalf("vol=%v dd=%v", vol, dd)
+	}
+	t.Logf("SPY: RSI14 %.1f, ADX14 %.1f, vol anual %.1f%%, max drawdown %.1f%%", last.RSI14, last.ADX14, vol*100, dd*100)
 }

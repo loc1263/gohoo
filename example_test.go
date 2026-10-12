@@ -62,6 +62,25 @@ func ExampleClient_Screen() {
 	}
 }
 
+// Technical indicators with custom periods and basic risk metrics on
+// adjusted daily bars. Requires network access, so it is compiled but not run.
+func ExampleComputeIndicatorsBars() {
+	client, err := gohoo.NewClientWithOptions(gohoo.WithLazyBootstrap())
+	if err != nil {
+		log.Fatal(err)
+	}
+	res, err := client.ChartRange(context.Background(), "SPY", gohoo.ChartParams{Range: "2y", Interval: "1d"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	bars := res.AutoAdjusted()
+	std := gohoo.ComputeIndicatorsBars(bars) // SMA20, RSI14, MACD(12,26,9), ...
+	closes := gohoo.Closes(bars)
+	golden := gohoo.Crossovers(gohoo.SMA(closes, 50), gohoo.SMA(closes, 200))
+	dd, _, _ := gohoo.MaxDrawdown(closes)
+	fmt.Println(std[len(std)-1].RSI14, golden[len(golden)-1], gohoo.Volatility(gohoo.Returns(closes), 252), dd)
+}
+
 func ExampleField() {
 	summary := map[string]interface{}{
 		"trailingPE": map[string]interface{}{"raw": 28.5, "fmt": "28.50"},
