@@ -179,3 +179,10 @@ func TestParseDateOnly(t *testing.T) {
 		t.Error("ParseDateOnly(\"14/11/2023\") expected error, got nil")
 	}
 }
+
+func TestGetPathThroughNonMap(t *testing.T) {
+	m := map[string]any{"a": "texto"}
+	if got := GetPath(m, "a", "b"); got != nil {
+		t.Errorf("GetPath sobre un string = %v, want nil", got)
+	}
+}

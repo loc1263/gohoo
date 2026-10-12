@@ -180,3 +180,21 @@ func TestRetryPolicyZeroValuesTakeDefaults(t *testing.T) {
 }
 
 // --- ChartRange ---
+
+func TestRetryDelayOverflowAndMaxDelay(t *testing.T) {
+	const maxDur = time.Duration(1<<63 - 1)
+	// 1<<40 << 30 = 1<<70: desborda a 0.
+	if got := (RetryPolicy{BaseDelay: 1 << 40}).delay(31, nil, nil); got != maxDur {
+		t.Errorf("RetryPolicy desbordada = %v, want %v", got, maxDur)
+	}
+	if got := (RetryPolicy{BaseDelay: time.Second, MaxDelay: 2 * time.Second}).delay(5, nil, nil); got != 2*time.Second {
+		t.Errorf("RetryPolicy con MaxDelay = %v, want 2s", got)
+	}
+	// 1<<33 << 30 = 1<<63: desborda a negativo.
+	if got := (RateLimitPolicy{BaseDelay: 1 << 33}).delay(31, nil, nil); got != maxDur {
+		t.Errorf("RateLimitPolicy desbordada = %v, want %v", got, maxDur)
+	}
+	if got := (RateLimitPolicy{BaseDelay: 1 << 33, MaxDelay: time.Minute}).delay(31, nil, nil); got != time.Minute {
+		t.Errorf("RateLimitPolicy desbordada con MaxDelay = %v, want 1m", got)
+	}
+}

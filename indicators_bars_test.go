@@ -213,3 +213,9 @@ func TestMaxDrawdown(t *testing.T) {
 		t.Error("sin datos válidos debe dar NaN")
 	}
 }
+
+func TestMaxDrawdownNonPositivePeak(t *testing.T) {
+	if dd, p, tr := MaxDrawdown([]float64{0, -1, -2}); dd != 0 || p != -1 || tr != -1 {
+		t.Errorf("máximo <= 0: dd=%v peak=%d trough=%d, want 0 -1 -1", dd, p, tr)
+	}
+}

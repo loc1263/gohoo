@@ -2,6 +2,7 @@ package gohoo
 
 import (
 	"math"
+	"slices"
 	"testing"
 	"time"
 )
@@ -200,5 +201,37 @@ func TestDetectGapsNoGapsOnRegularSeries(t *testing.T) {
 	}
 	if gaps := DetectGaps(series[:1], 5); gaps != nil {
 		t.Errorf("gaps con 1 sola barra = %v, want nil", gaps)
+	}
+}
+
+func TestVWAPZeroVolumeIsNaN(t *testing.T) {
+	out := vwap([]float64{11, 12}, []float64{9, 10}, []float64{10, 11}, []float64{0, 100})
+	mustNaN(t, "vwap", 0, out[0])
+	if out[1] != 11 {
+		t.Errorf("vwap[1] = %v, want 11", out[1])
+	}
+}
+
+func TestADXWithoutDirectionalMovementIsZero(t *testing.T) {
+	// Rango constante (TR > 0) pero sin movimiento direccional: +DI y -DI son 0.
+	n := 40
+	highs, lows, closes := make([]float64, n), make([]float64, n), make([]float64, n)
+	for i := range n {
+		highs[i], lows[i], closes[i] = 11, 9, 10
+	}
+	out := adx(highs, lows, closes, 14)
+	if got := out[n-1]; got != 0 {
+		t.Errorf("adx[%d] = %v, want 0", n-1, got)
+	}
+}
+
+func TestRSIAndBollingerSignals(t *testing.T) {
+	rs := rsiSignals([]float64{math.NaN(), 75, 25, 50})
+	if want := []string{"", "Sobrecompra", "Sobreventa", ""}; !slices.Equal(rs, want) {
+		t.Errorf("rsiSignals = %q, want %q", rs, want)
+	}
+	bb := bbSignals([]float64{12, 8, 10}, []float64{11, 11, 11}, []float64{9, 9, 9})
+	if want := []string{"Sobre banda superior", "Bajo banda inferior", ""}; !slices.Equal(bb, want) {
+		t.Errorf("bbSignals = %q, want %q", bb, want)
 	}
 }

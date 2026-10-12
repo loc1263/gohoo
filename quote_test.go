@@ -2,6 +2,7 @@ package gohoo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -130,5 +131,35 @@ func TestQuotesBodyRateLimitRetriedWithRateLimitPolicy(t *testing.T) {
 	qs, err := c.Quotes(context.Background(), []string{"AAPL"})
 	if err != nil || len(qs) != 1 || calls.Load() != 2 || len(*delays) != 1 || (*delays)[0] != 3*time.Second {
 		t.Errorf("qs=%v err=%v llamadas=%d esperas=%v", qs, err, calls.Load(), *delays)
+	}
+}
+
+func TestQuotesErrorBodies(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		check  func(error) bool
+	}{
+		{"404 sin JSON", http.StatusNotFound, "no es json", func(err error) bool { return errors.Is(err, ErrNotFound) }},
+		{"200 sin JSON", http.StatusOK, "no es json", func(err error) bool {
+			return err != nil && strings.Contains(err.Error(), "no se pudo parsear la respuesta de quote de AAPL")
+		}},
+		{"quoteResponse.error", http.StatusOK, `{"quoteResponse":{"result":[],"error":{"code":"Bad Request","description":"Missing value"}}}`,
+			func(err error) bool { return err != nil && strings.Contains(err.Error(), "Missing value") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			qs, err := newTestClient(t, srv).Quotes(context.Background(), []string{"AAPL"})
+			if !tc.check(err) || len(qs) != 0 {
+				t.Errorf("Quotes = %v, %v", qs, err)
+			}
+		})
 	}
 }

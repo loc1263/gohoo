@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -155,5 +156,19 @@ func TestPostJSONMarshalError(t *testing.T) {
 	c := &Client{crumb: "x"}
 	if _, err := c.PostJSON(context.Background(), "/x", nil, make(chan int)); err == nil {
 		t.Fatal("se esperaba error al serializar")
+	}
+}
+
+func TestGetJSONLazyBootstrapFails(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {})
+	mux.HandleFunc("/v1/test/getcrumb", func(w http.ResponseWriter, r *http.Request) {}) // crumb vacío
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := newRewritingClient(t, srv, WithLazyBootstrap())
+	_, err := c.GetJSON(context.Background(), "/v7/finance/quote", nil)
+	if err == nil || !strings.Contains(err.Error(), "respuesta de crumb inválida") {
+		t.Errorf("err = %v, want error de bootstrap", err)
 	}
 }

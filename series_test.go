@@ -1,6 +1,7 @@
 package gohoo
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -117,5 +118,68 @@ func TestChartSeriesEmptyResult(t *testing.T) {
 	client := newTestClient(t, srv)
 	if _, _, _, err := client.ChartSeries("FAKE", "1y", "1d"); err == nil {
 		t.Error("ChartSeries with empty result expected error, got nil")
+	}
+}
+
+func TestChartSeriesInvalidResponses(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"HTTP 404", http.StatusNotFound, ""},
+		{"sin indicators", http.StatusOK, `{"chart":{"result":[{"timestamp":[1700000000]}]}}`},
+		{"quote vacío", http.StatusOK, `{"chart":{"result":[{"timestamp":[1700000000],"indicators":{"quote":[]}}]}}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			if _, _, _, err := newTestClient(t, srv).ChartSeriesContext(context.Background(), "X", "1y", "1d"); err == nil {
+				t.Error("want error")
+			}
+		})
+	}
+}
+
+func TestChartSeriesSkipsBadTimestampAndShortArrays(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"chart":{"result":[{
+			"timestamp":["x",1700000000,1700086400],
+			"indicators":{"quote":[{"close":[1,2]}]}}]}}`))
+	}))
+	defer srv.Close()
+
+	series, _, _, err := newTestClient(t, srv).ChartSeriesContext(context.Background(), "X", "1y", "1d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(series) != 2 || series[0].Close != 2.0 || series[1].Close != nil {
+		t.Errorf("series = %+v, want 2 barras (Close 2 y nil)", series)
+	}
+}
+
+func TestParseEventsSkipsNonMapEntries(t *testing.T) {
+	divs, splits := parseEvents(map[string]any{
+		"dividends": map[string]any{"a": "basura", "b": map[string]any{"date": 1700000000.0, "amount": 0.5}},
+		"splits":    map[string]any{"a": 3.0},
+	})
+	if len(divs) != 1 || len(splits) != 0 {
+		t.Errorf("dividends=%v splits=%v, want 1 dividendo y 0 splits", divs, splits)
+	}
+}
+
+func TestDetectGapsZeroMedian(t *testing.T) {
+	t0 := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	series := []OHLCV{{Time: t0}, {Time: t0}, {Time: t0}}
+	if gaps := DetectGaps(series, 5); gaps != nil {
+		t.Errorf("DetectGaps con mediana 0 = %v, want nil", gaps)
+	}
+	if got := medianDuration(nil); got != 0 {
+		t.Errorf("medianDuration(nil) = %v, want 0", got)
 	}
 }

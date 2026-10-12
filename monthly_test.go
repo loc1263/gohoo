@@ -73,3 +73,13 @@ func TestMonthlyEmpty(t *testing.T) {
 }
 
 // --- Concurrencia ---
+
+func TestMonthlyEarlierBarAfterLaterIsIgnored(t *testing.T) {
+	later := time.Date(2024, 3, 28, 0, 0, 0, 0, time.UTC)
+	r := &ChartResult{Bars: []Bar{
+		{Time: later, AdjClose: 2},
+		{Time: later.AddDate(0, 0, -27), AdjClose: 1},
+	}}
+	dates, adj := r.Monthly()
+	checkMonthly(t, dates, adj, []string{"2024-03-01"}, []float64{2})
+}

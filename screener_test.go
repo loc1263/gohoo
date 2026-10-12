@@ -209,3 +209,27 @@ func TestScreenPredefined(t *testing.T) {
 		t.Errorf("err = %v, se esperaba ErrNotFound con el detalle de Yahoo", err)
 	}
 }
+
+func TestQueryStringZero(t *testing.T) {
+	if got := (Query{}).String(); got != "<query vacía>" {
+		t.Errorf("Query{}.String() = %q", got)
+	}
+}
+
+func TestScreenPredefinedValidationAndPlainHTTPError(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("no es json"))
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	if _, err := c.ScreenPredefined(context.Background(), "day_gainers", -1, 0); err == nil || calls != 0 {
+		t.Errorf("offset negativo: err=%v requests=%d, want error sin requests", err, calls)
+	}
+	if _, err := c.ScreenPredefined(context.Background(), "day_gainers", 0, 0); !errors.Is(err, ErrNotFound) {
+		t.Errorf("404 sin JSON: err = %v, want ErrNotFound", err)
+	}
+}

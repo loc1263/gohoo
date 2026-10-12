@@ -268,3 +268,25 @@ func TestContextDeadlineOnHangingServer(t *testing.T) {
 }
 
 // --- Errores tipados ---
+
+func TestConsentURLOverride(t *testing.T) {
+	c := &Client{}
+	if got := c.consentURL(); got != defaultConsentURL {
+		t.Errorf("consentURL() = %q, want %q", got, defaultConsentURL)
+	}
+	testCfg(c).consentURL = "http://consent.test"
+	if got := c.consentURL(); got != "http://consent.test" {
+		t.Errorf("consentURL() = %q, want http://consent.test", got)
+	}
+}
+
+func TestSleepContextNonPositive(t *testing.T) {
+	if err := sleepContext(context.Background(), 0); err != nil {
+		t.Errorf("sleepContext(0) = %v, want nil", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sleepContext(ctx, -time.Second); !errors.Is(err, context.Canceled) {
+		t.Errorf("sleepContext(cancelado, -1s) = %v, want context.Canceled", err)
+	}
+}

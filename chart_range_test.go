@@ -3,10 +3,13 @@ package gohoo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -270,4 +273,61 @@ func TestConcurrentClientUse(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestChartRangeUnparseableBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("no es json"))
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(t, srv).ChartRange(context.Background(), "AAPL", ChartParams{Range: "1y"})
+	if err == nil || !strings.Contains(err.Error(), "no se pudo parsear chart de AAPL") {
+		t.Errorf("err = %v, want error de parseo", err)
+	}
+}
+
+func TestChartRangeEmptyResultIsNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"chart":{"result":[],"error":null}}`))
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(t, srv).ChartRange(context.Background(), "AAPL", ChartParams{Range: "1y"})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestChartRangeSkipsNullTimestampAndUnknownZone(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"chart":{"result":[{
+			"meta":{"symbol":"X","exchangeTimezoneName":"Zona/Inexistente"},
+			"timestamp":[null,1700000000],
+			"indicators":{"quote":[{"close":[1,2]}]}}]}}`))
+	}))
+	defer srv.Close()
+
+	res, err := newTestClient(t, srv).ChartRange(context.Background(), "X", ChartParams{Range: "1y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Bars) != 1 || res.Bars[0].AdjClose != 2 {
+		t.Errorf("Bars = %+v, want una barra con AdjClose 2", res.Bars)
+	}
+	if res.Meta.Location != time.UTC {
+		t.Errorf("Location = %v, want UTC para una zona desconocida", res.Meta.Location)
+	}
+}
+
+func TestChartParamsStartWithoutEndUsesNow(t *testing.T) {
+	now := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	q, err := ChartParams{Start: now.AddDate(0, -1, 0)}.query(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vals, _ := url.ParseQuery(q)
+	if vals.Get("period2") != fmt.Sprint(now.Unix()) {
+		t.Errorf("period2 = %s, want %d", vals.Get("period2"), now.Unix())
+	}
 }

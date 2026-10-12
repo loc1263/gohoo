@@ -241,3 +241,17 @@ func TestRetryPolicyContextOverridesClient(t *testing.T) {
 		t.Error("un contexto sin política no debe traer una")
 	}
 }
+
+func TestLimiterErrorMessage(t *testing.T) {
+	err := &limiterError{errors.New("sin cupo")}
+	if err.Error() != "gohoo: limiter: sin cupo" {
+		t.Errorf("Error() = %q", err.Error())
+	}
+}
+
+func TestRequestEventUnparseableURL(t *testing.T) {
+	ev := newRequestEvent(http.MethodGet, "://sin-esquema", defaultConsentURL, 1, 0, 0, nil)
+	if ev.Endpoint != "other" || ev.Symbol != "" || ev.URL != "://sin-esquema" {
+		t.Errorf("RequestEvent = %+v, want Endpoint other", ev)
+	}
+}

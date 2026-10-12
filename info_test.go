@@ -3,6 +3,7 @@ package gohoo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -208,5 +209,16 @@ func TestAutoAdjustAndAtMidnight(t *testing.T) {
 	mid := AtMidnight(in)
 	if !mid[1].Time.Equal(time.Date(2026, 1, 5, 0, 0, 0, 0, ny)) || mid[1].Open != 4 || in[1].Time.Hour() != 9 {
 		t.Errorf("AtMidnight = %+v (entrada %v)", mid[1], in[1].Time)
+	}
+}
+
+func TestInfoPropagatesError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	if _, err := newTestClient(t, srv).Info(context.Background(), "NOPE"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
