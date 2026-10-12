@@ -142,7 +142,7 @@ func parseEvents(events map[string]any) (dividends, splits map[string]float64) {
 }
 
 // Gap describe un hueco inusual entre dos barras consecutivas de una serie
-// OHLCV: la diferencia de tiempo entre ellas (Actual) es mayor que
+// OHLCV: la diferencia de tiempo entre ellas (Real) es mayor que
 // `factor` veces el intervalo esperado de la serie (Esperado).
 type Gap struct {
 	From, To       time.Time

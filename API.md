@@ -61,7 +61,7 @@ Crea un `Client` autenticado:
 1. Hace un `GET` a `https://fc.yahoo.com` para fijar cookies de consentimiento/sesión (se ignora cualquier error, incluyendo 404).
 2. Hace un `GET` a `https://query2.finance.yahoo.com/v1/test/getcrumb` para obtener el token "crumb".
 
-Devuelve error si no se pudo construir el cookie jar o si la respuesta del crumb viene vacía o es HTML (p. ej. una página de error/consentimiento en vez del token).
+Devuelve error si no se pudo construir el cookie jar, si la request del crumb falla (error de red o HTTP distinto de 200) o si la respuesta del crumb viene vacía o es HTML (p. ej. una página de error/consentimiento en vez del token).
 
 ```go
 client, err := gohoo.NewClient()
@@ -121,7 +121,7 @@ data, err := client.FundamentalsTimeseries("AAPL", []string{"annualTotalRevenue"
 func (c *Client) Chart(ticker, rango, intervalo string) (map[string]any, error)
 ```
 
-Llama a `v8/finance/chart/{ticker}` con `range`, `interval` y `events=div,splits`, devolviendo el JSON crudo de Yahoo (OHLCV + metadata + eventos). Para la mayoría de los usos conviene `ChartSeries`, que ya parsea esta respuesta.
+Llama a `v8/finance/chart/{ticker}` con `range`, `interval` y `events=div,splits`, devolviendo el JSON crudo de Yahoo (OHLCV + metadata + eventos). Para la mayoría de los usos conviene [ChartRange](#chartrange), que devuelve barras tipadas.
 
 Valores válidos de `rango`: `1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max`.
 Valores válidos de `intervalo`: `1m, 2m, 5m, 15m, 30m, 60m/1h, 1d, 5d, 1wk, 1mo, 3mo`.
@@ -171,7 +171,7 @@ Constructor configurable. Sin opciones es idéntico a `NewClient()` (que de hech
 | `WithBaseURL(u)` | Host de `chart`, `quoteSummary`, `fundamentals-timeseries` y `getcrumb` (p. ej. `https://query1.finance.yahoo.com` o un `httptest.Server`). Error si `u` no tiene esquema y host. | `https://query2.finance.yahoo.com` |
 | `WithUserAgent(ua)` | Header `User-Agent` de todas las requests. | Chrome/Windows de escritorio |
 | `WithRetryPolicy(p)` | Política de reintentos (ver [RetryPolicy](#retrypolicy)). | `DefaultRetryPolicy()` |
-| `WithLazyBootstrap()` | El constructor no hace red; cookie+crumb se piden la primera vez que hacen falta (`QuoteSummary`) o tras un 401. `Chart*` nunca los exige. | Bootstrap inmediato |
+| `WithLazyBootstrap()` | El constructor no hace red; cookie+crumb se piden la primera vez que hacen falta (`QuoteSummaryContext`, `Info`, `Quotes`, `Screen`, `ScreenPredefined`, `GetJSON`, `PostJSON`) o tras un 401. `Chart`, `ChartSeries` y `ChartRange` nunca los exigen. | Bootstrap inmediato |
 
 ```go
 client, err := gohoo.NewClientWithOptions(
@@ -248,6 +248,10 @@ func Btwn(field string, lo, hi float64) Query
 func IsIn(field string, vs ...any) Query // Or de Eq
 func And(qs ...Query) Query
 func Or(qs ...Query) Query
+
+func (q Query) IsZero() bool                 // query vacía (el valor cero de Query)
+func (q Query) String() string               // la query en JSON, para logs; "<query vacía>" si IsZero
+func (q Query) MarshalJSON() ([]byte, error) // {"operator":"EQ","operands":["region","us"]}; error si IsZero
 
 type ScreenParams struct {
     Query     Query  // obligatoria
@@ -434,6 +438,27 @@ func ComputeIndicators(series []OHLCV) []IndicatorSet
 ```
 
 Calcula SMA20, EMA12/26, RSI14, MACD(12,26,9), Bandas de Bollinger(20,2), ATR14, Estocástico(14,3), Williams %R14, ADX14, VWAP (anclado al inicio de la serie), OBV y SMA20 de volumen, más las señales `CrossSignal`, `RSISignal` y `BBSignal`. La serie debe estar ordenada cronológicamente (como la devuelve `ChartSeries`). El resultado está alineado por índice con la entrada; los valores sin historia suficiente son `math.NaN()`, y las señales que no aplican son `""`.
+
+```go
+type IndicatorSet struct {
+    SMA20                      float64
+    EMA12, EMA26               float64
+    RSI14                      float64
+    MACD, MACDSignal, MACDHist float64
+    BBUpper, BBMiddle, BBLower float64
+    OBV                        float64
+    VolumeSMA20                float64
+    ATR14                      float64
+    StochK, StochD             float64
+    WilliamsR14                float64
+    VWAP                       float64
+    ADX14                      float64
+
+    CrossSignal string // "Golden Cross" / "Death Cross" (SMA20 vs EMA26)
+    RSISignal   string // "Sobrecompra" (>= 70) / "Sobreventa" (<= 30)
+    BBSignal    string // "Sobre banda superior" / "Bajo banda inferior"
+}
+```
 
 ```go
 series, _, _, _ := client.ChartSeries("AAPL", "1y", "1d")
@@ -744,7 +769,7 @@ func IsRateLimit(err error) bool // errors.Is(err, ErrRateLimit)
 Toda respuesta HTTP distinta de 200 es un `*StatusError` (se obtiene con `errors.As`) y se compara con los sentinelas con `errors.Is`, también cuando viene envuelta en `agotados N intentos: ...`:
 
 ```go
-_, err := client.Chart("AAPL", "1y", "1d")
+_, err := client.ChartRange(ctx, "AAPL", gohoo.ChartParams{Range: "1y"})
 if gohoo.IsRateLimit(err) {
     var se *gohoo.StatusError
     if errors.As(err, &se) && se.RetryAfter > 0 {
@@ -759,7 +784,7 @@ Con la política por defecto, el cliente reintenta automáticamente (hasta 4 int
 
 ## Límites y particularidades de Yahoo Finance
 
-- No requiere API key: solo cookies de sesión + crumb público, obtenidos automáticamente en `NewClient`.
+- No requiere API key: solo cookies de sesión + crumb público, obtenidos automáticamente por `NewClient` (o en el primer uso con `WithLazyBootstrap`).
 - Yahoo limita cuánto histórico intradía entrega (p. ej. `interval=1m` solo cubre los últimos ~7 días, independientemente del `range` pedido).
 - `FundamentalsTimeseries` siempre pide una ventana de 6 años; para históricos más largos hay que paginar manualmente ajustando `period1`/`period2` fuera de esta librería (actualmente no configurable vía parámetros).
 - Mismo endpoint `chart` sirve acciones (`AAPL`), ETFs (`SPY`) y criptomonedas (`BTC-USD`); solo cambia qué eventos (`dividends`/`splits`) trae cada uno.

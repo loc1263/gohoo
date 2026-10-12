@@ -70,8 +70,9 @@ func WithRetryPolicy(p RetryPolicy) Option {
 
 // WithLazyBootstrap hace que NewClientWithOptions no haga ninguna request:
 // el bootstrap de cookie+crumb corre la primera vez que un endpoint lo
-// necesita (QuoteSummary) o tras un HTTP 401. Chart, ChartSeries y
-// ChartRange nunca lo exigen.
+// necesita (QuoteSummaryContext, Info, Quotes, Screen, ScreenPredefined,
+// GetJSON y PostJSON) o tras un HTTP 401. Chart, ChartSeries y ChartRange
+// nunca lo exigen.
 func WithLazyBootstrap() Option {
 	return func(c *config) { c.lazy = true }
 }

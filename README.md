@@ -67,12 +67,12 @@ func main() {
 ## API
 
 - `NewClient() (*Client, error)` — creates an authenticated session (Yahoo cookie + crumb).
-- `(*Client) QuoteSummary(ticker string, modules []string) (map[string]any, error)` — `quoteSummary` modules (price, statistics, analyst estimates, etc.), merged into a single map.
-- `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]any, error)` — annual/quarterly financial statements via `fundamentals-timeseries`.
-- `(*Client) Chart(ticker, rang, interval string) (map[string]any, error)` — raw response from the `chart` endpoint (OHLCV + dividends/splits).
+- `(*Client) QuoteSummary(ticker string, modules []string) (map[string]any, error)` — `quoteSummary` modules (price, statistics, analyst estimates, etc.), merged into a single map. *Deprecated:* use `QuoteSummaryContext` or `Info`.
+- `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]any, error)` — annual/quarterly financial statements via `fundamentals-timeseries`. *Deprecated:* use `FundamentalsTimeseriesContext`.
+- `(*Client) Chart(ticker, rang, interval string) (map[string]any, error)` — raw response from the `chart` endpoint (OHLCV + dividends/splits). *Deprecated:* use `ChartRange` (or `GetJSON` for the raw response).
 - `(*Client) ChartSeries(ticker, rang, interval string) ([]OHLCV, dividends, splits map[string]float64, error)` — `Chart` already parsed into a sorted series, plus dividends/splits keyed by date (`"YYYY-MM-DD"`).
 - `NewClientWithOptions(opts ...Option) (*Client, error)` — configurable client: `WithHTTPClient`, `WithBaseURL`, `WithUserAgent`, `WithRetryPolicy`, `WithLazyBootstrap` (no network until a crumb is actually needed). With no options it behaves exactly like `NewClient()`.
-- `QuoteSummaryContext`, `FundamentalsTimeseriesContext`, `ChartContext`, `ChartSeriesContext` — same as above, cancellable through a `context.Context` (also during the retry backoff).
+- `QuoteSummaryContext`, `FundamentalsTimeseriesContext`, `ChartContext`, `ChartSeriesContext` — same as above, cancellable through a `context.Context` (also during the retry backoff). `ChartContext` is deprecated too.
 - `(*Client) ChartRange(ctx, ticker string, p ChartParams) (*ChartResult, error)` — `chart` by relative range or by dates (`period1`/`period2`), typed as `float64` bars in the exchange's time zone, with Yahoo's `null`s handled.
 - `(*ChartResult) Monthly() (dates []time.Time, adj []float64)` — one adjusted close per calendar month; the most recent bar of a month wins (monthly bar vs. the "live" one).
 - `(*Client) Screen(ctx, p ScreenParams) (*ScreenResult, error)` — Yahoo's screener with a query builder (`Eq`, `Gt`, `Lt`, `Gte`, `Lte`, `Btwn`, `IsIn`, `And`, `Or`), paging and sorting; `ScreenPredefined(ctx, id, offset, size)` for Yahoo's saved screeners (`day_gainers`, `most_actives`, ...).
@@ -96,7 +96,7 @@ Every number Yahoo returns in `quoteSummary`/`fundamentals-timeseries` arrives a
 
 - `Client` is safe for concurrent use. It retries only on transient failures (network errors, 429, 5xx) with exponential backoff; on a 401 it refreshes the session.
 - Don't fire bursts of requests: Yahoo rate-limits by IP.
-- No API key or user authentication required: just session cookies plus a public "crumb" token, fetched automatically in `NewClient`.
+- No API key or user authentication required: just session cookies plus a public "crumb" token, fetched automatically by `NewClient` (or on first use with `WithLazyBootstrap`).
 - `rang` and `interval` take the same values as Yahoo Finance's UI/API: `1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max` for ranges and `1m, 2m, 5m, 15m, 30m, 60m/1h, 1d, 5d, 1wk, 1mo, 3mo` for intervals. Yahoo limits how much history it returns for intraday intervals.
 - Works the same for stocks (`AAPL`), ETFs (`SPY`) and cryptocurrencies (`BTC-USD`) — they all share Yahoo Finance's `chart` endpoint.
 - `ChartRange` places bars in the exchange's time zone. On Windows machines without Go installed, import `_ "time/tzdata"` in your application; otherwise the zone falls back to UTC. `gohoo` doesn't import it, to keep binaries small.

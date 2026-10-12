@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+No exported signature or behavior changed.
+
+### Changed
+- Tests: error paths are now covered (session bootstrap, re-authentication after a 401, invalid JSON, empty chart results, quote/screener error bodies, retry backoff overflow, indicator edge cases) and `NewClient` has its own tests. Coverage goes from 96.2% to 99.9%.
+- `.gitattributes` forces LF line endings, so `gofmt` stays clean on Windows checkouts.
+- Documentation: deprecated methods are marked as such in the README; `WithLazyBootstrap` lists every method that triggers the session bootstrap; API.md documents the `Query` methods and the `IndicatorSet` fields; ENDPOINTS.md covers all five endpoints and points to the current methods (`ChartRange`, `Info`, `...Context`); fixed doc comments for `Gap` and `EpochToDateTimeNY`.
+
 ## [0.7.0] - 2026-10-12
 
 No exported signature or behavior changed (checked with `apidiff` against v0.2.1 and v0.6.0).

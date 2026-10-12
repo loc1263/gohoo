@@ -67,12 +67,12 @@ func main() {
 ## API
 
 - `NewClient() (*Client, error)` — crea una sesión autenticada (cookie + crumb de Yahoo).
-- `(*Client) QuoteSummary(ticker string, modules []string) (map[string]any, error)` — módulos de `quoteSummary` (precio, estadísticas, estimaciones de analistas, etc.), fusionados en un solo mapa.
-- `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]any, error)` — estados financieros anuales/trimestrales vía `fundamentals-timeseries`.
-- `(*Client) Chart(ticker, rango, intervalo string) (map[string]any, error)` — respuesta cruda del endpoint `chart` (OHLCV + dividendos/splits).
+- `(*Client) QuoteSummary(ticker string, modules []string) (map[string]any, error)` — módulos de `quoteSummary` (precio, estadísticas, estimaciones de analistas, etc.), fusionados en un solo mapa. *Deprecado:* usar `QuoteSummaryContext` o `Info`.
+- `(*Client) FundamentalsTimeseries(ticker string, types []string) (map[string]any, error)` — estados financieros anuales/trimestrales vía `fundamentals-timeseries`. *Deprecado:* usar `FundamentalsTimeseriesContext`.
+- `(*Client) Chart(ticker, rango, intervalo string) (map[string]any, error)` — respuesta cruda del endpoint `chart` (OHLCV + dividendos/splits). *Deprecado:* usar `ChartRange` (o `GetJSON` para la respuesta cruda).
 - `(*Client) ChartSeries(ticker, rango, intervalo string) ([]OHLCV, dividendos, splits map[string]float64, error)` — `Chart` ya parseado a una serie ordenada, más dividendos/splits indexados por fecha (`"YYYY-MM-DD"`).
 - `NewClientWithOptions(opts ...Option) (*Client, error)` — cliente configurable: `WithHTTPClient`, `WithBaseURL`, `WithUserAgent`, `WithRetryPolicy`, `WithLazyBootstrap` (no hace red hasta que de verdad se necesita el crumb). Sin opciones se comporta exactamente igual que `NewClient()`.
-- `QuoteSummaryContext`, `FundamentalsTimeseriesContext`, `ChartContext`, `ChartSeriesContext` — iguales a los anteriores, cancelables con un `context.Context` (también durante la espera entre reintentos).
+- `QuoteSummaryContext`, `FundamentalsTimeseriesContext`, `ChartContext`, `ChartSeriesContext` — iguales a los anteriores, cancelables con un `context.Context` (también durante la espera entre reintentos). `ChartContext` también está deprecado.
 - `(*Client) ChartRange(ctx, ticker string, p ChartParams) (*ChartResult, error)` — `chart` por rango relativo o por fechas (`period1`/`period2`), con barras `float64` en la zona horaria del exchange y los `null` de Yahoo resueltos.
 - `(*ChartResult) Monthly() (dates []time.Time, adj []float64)` — un cierre ajustado por mes calendario; dentro de un mes gana la barra más reciente (la mensual frente a la "en vivo").
 - `(*Client) Screen(ctx, p ScreenParams) (*ScreenResult, error)` — screener de Yahoo con constructor de queries (`Eq`, `Gt`, `Lt`, `Gte`, `Lte`, `Btwn`, `IsIn`, `And`, `Or`), paginación y orden; `ScreenPredefined(ctx, id, offset, size)` para los screeners guardados de Yahoo (`day_gainers`, `most_actives`, ...).
@@ -96,7 +96,7 @@ Todos los números que devuelve Yahoo en `quoteSummary`/`fundamentals-timeseries
 
 - `Client` es seguro para uso concurrente y reintenta solo ante fallas transitorias (red, 429, 5xx) con backoff; ante 401 renueva la sesión.
 - No hagas ráfagas de peticiones: Yahoo aplica rate limit por IP.
-- No requiere API key ni autenticación de usuario: solo cookies de sesión + un token "crumb" público, obtenidos automáticamente en `NewClient`.
+- No requiere API key ni autenticación de usuario: solo cookies de sesión + un token "crumb" público, obtenidos automáticamente por `NewClient` (o en el primer uso con `WithLazyBootstrap`).
 - `rango` e `intervalo` son los mismos valores que acepta Yahoo Finance en su UI/API: `1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max` y `1m, 2m, 5m, 15m, 30m, 60m/1h, 1d, 5d, 1wk, 1mo, 3mo` respectivamente. Yahoo limita cuánto histórico entrega para los intervalos intradía.
 - Sirve igual para acciones (`AAPL`), ETFs (`SPY`) y criptomonedas (`BTC-USD`) — todas comparten el mismo endpoint `chart` en Yahoo Finance.
 - `ChartRange` ubica las barras en la zona horaria del exchange. En Windows sin Go instalado, importá `_ "time/tzdata"` en tu aplicación; si no, la zona cae en UTC. `gohoo` no lo importa para no agrandar los binarios.

@@ -1,6 +1,6 @@
 # Endpoints de Yahoo Finance
 
-Estos son los tres endpoints no oficiales que usa `gohoo`, qué parámetros aceptan, la forma de su respuesta JSON y qué datos se pueden extraer de cada uno. No son endpoints documentados por Yahoo — todo esto es ingeniería inversa (como la mayoría de las libs tipo `yfinance`), así que la disponibilidad exacta de módulos/campos puede variar según ticker, tipo de activo (acción/ETF/cripto/índice) y puede cambiar sin aviso.
+Estos son los cinco endpoints no oficiales que usa `gohoo`, qué parámetros aceptan, la forma de su respuesta JSON y qué datos se pueden extraer de cada uno. No son endpoints documentados por Yahoo — todo esto es ingeniería inversa (como la mayoría de las libs tipo `yfinance`), así que la disponibilidad exacta de módulos/campos puede variar según ticker, tipo de activo (acción/ETF/cripto/índice) y puede cambiar sin aviso.
 
 ## 1. `quoteSummary` — datos "de ficha" de un ticker
 
@@ -8,7 +8,7 @@ Estos son los tres endpoints no oficiales que usa `gohoo`, qué parámetros acep
 GET https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}?modules={m1,m2,...}&crumb={crumb}
 ```
 
-Expuesto en gohoo como [`Client.QuoteSummary`](API.md#quotesummary). Cada "módulo" pedido es un bloque de datos independiente; Yahoo los devuelve todos fusionados en `quoteSummary.result[0]` (gohoo ya hace ese merge si se pide más de un módulo de golpe). Todos los números vienen envueltos como `{"raw": x, "fmt": "texto"}` — usar `Field`/`RawValue` para desenvolverlos.
+Expuesto en gohoo como [`Client.Info`](API.md#info-y-flatteninfo) (mapa plano) y `Client.QuoteSummaryContext` (respuesta cruda; `QuoteSummary` está deprecado). Cada "módulo" pedido es un bloque de datos independiente; Yahoo los devuelve todos fusionados en `quoteSummary.result[0]` (gohoo ya hace ese merge si se pide más de un módulo de golpe). Todos los números vienen envueltos como `{"raw": x, "fmt": "texto"}` — usar `Field`/`RawValue` para desenvolverlos.
 
 Módulos más usados:
 
@@ -46,7 +46,7 @@ Si se pide un módulo que no existe para ese ticker (p. ej. `esgScores` en una c
 GET https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{ticker}?symbol={ticker}&type={t1,t2,...}&period1={unix}&period2={unix}
 ```
 
-Expuesto en gohoo como [`Client.FundamentalsTimeseries`](API.md#fundamentalstimeseries) (siempre pide los últimos 6 años, no configurable). A diferencia de `quoteSummary`, este endpoint entrega **series temporales** en vez de solo el último valor — útil para ver la evolución de una métrica trimestre a trimestre o año a año.
+Expuesto en gohoo como `Client.FundamentalsTimeseriesContext` (siempre pide los últimos 6 años, no configurable), con [`TimeseriesPoints`](API.md#timeseriespoints-y-trailingpeg) para leer las observaciones tipadas y `Client.TrailingPEG`. A diferencia de `quoteSummary`, este endpoint entrega **series temporales** en vez de solo el último valor — útil para ver la evolución de una métrica trimestre a trimestre o año a año.
 
 Cada `type` combina un prefijo de frecuencia con un concepto financiero:
 
@@ -63,18 +63,18 @@ La respuesta trae, por cada `type` pedido, un array de puntos `{asOfDate, period
 GET https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?range={range}&interval={interval}&events=div,splits
 ```
 
-Expuesto en gohoo como [`Client.Chart`](API.md#chart) (respuesta cruda) y [`Client.ChartSeries`](API.md#chartseries) (ya parseado a `[]OHLCV` + mapas de dividendos/splits). Es el único de los tres endpoints que no requiere crumb para responder con datos completos, aunque gohoo lo envía igual por consistencia.
+Expuesto en gohoo como [`Client.ChartRange`](API.md#chartrange) (barras tipadas en la zona del exchange, por rango o por fechas), [`Client.ChartSeries`](API.md#chartseries) (ya parseado a `[]OHLCV` + mapas de dividendos/splits) y [`Client.Chart`](API.md#chart) (respuesta cruda, deprecado). Es el único de estos endpoints que no requiere crumb para responder con datos completos, así que gohoo no lo envía.
 
 Forma de `chart.result[0]`:
 
-- `meta` — metadata del instrumento y de la consulta: `currency`, `symbol`, `exchangeName`, `instrumentType` (`EQUITY`/`ETF`/`CRYPTOCURRENCY`/...), `firstTradeDate`, `regularMarketPrice`, `chartPreviousClose`, `gmtoffset`, `timezone`, `dataGranularity`, `range`, `validRanges` (los rangos válidos que Yahoo realmente soporta para ese ticker/intervalo). gohoo no expone `meta` en `ChartSeries`; hay que leerlo de `Chart` crudo con `GetPath(chart, "chart", "result")` + index 0.
+- `meta` — metadata del instrumento y de la consulta: `currency`, `symbol`, `exchangeName`, `instrumentType` (`EQUITY`/`ETF`/`CRYPTOCURRENCY`/...), `firstTradeDate`, `regularMarketPrice`, `chartPreviousClose`, `gmtoffset`, `timezone`, `dataGranularity`, `range`, `validRanges` (los rangos válidos que Yahoo realmente soporta para ese ticker/intervalo). `ChartRange` expone lo principal en `ChartResult.Meta` (`symbol`, `currency`, `instrumentType`, `exchangeTimezoneName`); `ChartSeries` no lo expone, y el resto hay que leerlo de la respuesta cruda (`GetJSON`).
 - `timestamp` — array de epochs Unix (UTC), uno por vela.
 - `indicators.quote[0]` — arrays paralelos a `timestamp`: `open`, `high`, `low`, `close`, `volume`. Pueden traer `null` en posiciones sin dato (p. ej. mercado cerrado ese día para ese intervalo).
 - `indicators.adjclose[0].adjclose` — cierre ajustado por dividendos/splits, paralelo a `timestamp`. Puede faltar el bloque completo para algunos intervalos intradía.
 - `events.dividends` — mapa `{epoch: {amount, date}}`, un entry por cada dividendo pagado dentro del rango pedido.
 - `events.splits` — mapa `{epoch: {date, numerator, denominator, splitRatio}}`, un entry por cada split/reverse-split dentro del rango.
 
-`ChartSeries` reindexa `dividends`/`splits` por fecha `"YYYY-MM-DD"` (vía `EpochToDate`) en vez de por epoch crudo, para que sean fáciles de cruzar con las fechas de `OHLCV.Time`.
+`ChartRange` y `ChartSeries` reindexan `dividends`/`splits` por fecha `"YYYY-MM-DD"` (vía `EpochToDate`) en vez de por epoch crudo, para que sean fáciles de cruzar con las fechas de las barras.
 
 Para criptomonedas e índices, `events` normalmente viene vacío (no hay dividendos/splits que reportar), por lo que los mapas resultantes quedan vacíos — no es un error ni una respuesta incompleta.
 

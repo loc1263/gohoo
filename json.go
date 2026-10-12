@@ -108,7 +108,8 @@ func EpochToDate(v any) string {
 }
 
 // EpochToDateTimeNY convierte un timestamp Unix a "YYYY-MM-DD HH:MM:SS-07:00"
-// en la zona America/New_York (zona horaria de las fechas de resultados).
+// en la zona loc (UTC si es nil). Pensada para America/New_York, la zona de
+// las fechas de resultados.
 func EpochToDateTimeNY(v any, loc *time.Location) string {
 	f, ok := AsFloat(v)
 	if !ok {
