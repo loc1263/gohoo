@@ -4,9 +4,9 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.8.0] - 2026-10-31
 
-No exported signature changed.
+Only additions: `apidiff` against v0.7.1 reports no incompatible change. The one behavior change is that more errors satisfy `errors.Is` (see Changed).
 
 ### Added
 - `MFI(highs, lows, closes, volumes, period)`: Money Flow Index (volume-weighted RSI). A standalone function; `IndicatorSet` is unchanged. Matches a pandas-style implementation from the first bar with `period` full comparisons; the first `period` values are NaN.
