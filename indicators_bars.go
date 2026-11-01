@@ -233,6 +233,59 @@ func MFI(highs, lows, closes, volumes []float64, period int) []float64 {
 	return out
 }
 
+// MFISkipNaN es MFI que, en vez de dejar en NaN toda ventana con un dato
+// faltante, ignora las barras incompletas: una barra sin High, Low, Close o
+// Volume (o cuya barra anterior no tiene precio típico) no aporta flujo ni
+// positivo ni negativo, y el MFI se calcula con las demás barras de la
+// ventana de period barras. Útil con volúmenes que Yahoo deja vacíos de vez
+// en cuando. Los primeros period valores quedan en NaN; sin flujo negativo
+// vale 100 (NaN si tampoco hay positivo, o si ninguna barra de la ventana
+// aporta flujo). Sin datos faltantes da lo mismo que MFI. Devuelve nil si las
+// columnas no tienen el mismo largo.
+func MFISkipNaN(highs, lows, closes, volumes []float64, period int) []float64 {
+	if !sameLen(highs, lows, closes, volumes) {
+		return nil
+	}
+	n := len(closes)
+	out := nanSlice(n)
+	if period < 1 {
+		return out
+	}
+	typical := make([]float64, n)
+	for i := range typical {
+		typical[i] = (highs[i] + lows[i] + closes[i]) / 3
+	}
+	// pos[i] y neg[i] son el flujo de la barra i (0 si la barra no aporta).
+	pos, neg := make([]float64, n), make([]float64, n)
+	for i := 1; i < n; i++ {
+		flow := typical[i] * volumes[i]
+		if math.IsNaN(flow) || math.IsNaN(typical[i-1]) {
+			continue
+		}
+		switch {
+		case typical[i] > typical[i-1]:
+			pos[i] = flow
+		case typical[i] < typical[i-1]:
+			neg[i] = flow
+		}
+	}
+	for i := period; i < n; i++ {
+		var p, q float64
+		for j := i - period + 1; j <= i; j++ {
+			p += pos[j]
+			q += neg[j]
+		}
+		switch {
+		case p == 0 && q == 0:
+		case q == 0:
+			out[i] = 100
+		default:
+			out[i] = 100 - 100/(1+p/q)
+		}
+	}
+	return out
+}
+
 // Crossovers marca los cruces entre una serie rápida y una lenta (p. ej.
 // dos medias móviles): +1 en la barra en que fast pasa a estar por encima
 // de slow, -1 cuando pasa a estar por debajo y 0 si no hay cruce o falta
