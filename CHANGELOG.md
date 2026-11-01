@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 No exported signature changed.
 
 ### Added
+- `MFI(highs, lows, closes, volumes, period)`: Money Flow Index (volume-weighted RSI). A standalone function; `IndicatorSet` is unchanged. Matches a pandas-style implementation from the first bar with `period` full comparisons; the first `period` values are NaN.
+- `LatestPoint`, `PointOn`, `FilterPeriodType` and `SumLast`: small helpers over the `[]Point` that `TimeseriesPoints` returns (latest observation, observation on a given date, filter by `PeriodType`, sum of the latest n, e.g. TTM from quarterly data).
 - `NewIntervalLimiter(gap)`: a ready-made `Limiter` (at most one request per `gap`, safe for concurrent use, honors `ctx`) to pass to `WithLimiter`.
 - `(*Client).DailyBars(ctx, ticker, start, end)`: daily bars adjusted for splits and dividends with the time moved to midnight; `errors.Is(err, ErrNotFound)` when Yahoo returns no bars.
 

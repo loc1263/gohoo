@@ -183,6 +183,56 @@ func VWAP(highs, lows, closes, volumes []float64) []float64 {
 	return vwap(highs, lows, closes, volumes)
 }
 
+// MFI es el Money Flow Index de period puntos (0..100; 14 es el estándar):
+// el RSI ponderado por volumen. El flujo de cada barra es su precio típico
+// (H+L+C)/3 por el volumen y cuenta como positivo o negativo según el precio
+// típico suba o baje respecto de la barra anterior; el MFI es 100 - 100/(1+r),
+// con r = flujo positivo / flujo negativo de las últimas period barras.
+// Los primeros period valores quedan en NaN. Sin flujo negativo vale 100
+// (si además no hay flujo positivo, NaN). Un NaN en la entrada deja en NaN las
+// ventanas que lo contienen. Devuelve nil si las columnas no tienen el mismo
+// largo.
+func MFI(highs, lows, closes, volumes []float64, period int) []float64 {
+	if !sameLen(highs, lows, closes, volumes) {
+		return nil
+	}
+	n := len(closes)
+	out := nanSlice(n)
+	if period < 1 {
+		return out
+	}
+	typical := make([]float64, n)
+	for i := range typical {
+		typical[i] = (highs[i] + lows[i] + closes[i]) / 3
+	}
+	for i := period; i < n; i++ {
+		var pos, neg float64
+		valid := true
+		for j := i - period + 1; j <= i; j++ {
+			flow := typical[j] * volumes[j]
+			if math.IsNaN(typical[j]) || math.IsNaN(typical[j-1]) || math.IsNaN(flow) {
+				valid = false
+				break
+			}
+			switch {
+			case typical[j] > typical[j-1]:
+				pos += flow
+			case typical[j] < typical[j-1]:
+				neg += flow
+			}
+		}
+		switch {
+		case !valid:
+		case neg == 0 && pos == 0:
+		case neg == 0:
+			out[i] = 100
+		default:
+			out[i] = 100 - 100/(1+pos/neg)
+		}
+	}
+	return out
+}
+
 // Crossovers marca los cruces entre una serie rápida y una lenta (p. ej.
 // dos medias móviles): +1 en la barra en que fast pasa a estar por encima
 // de slow, -1 cuando pasa a estar por debajo y 0 si no hay cruce o falta

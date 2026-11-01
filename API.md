@@ -412,10 +412,14 @@ type Point struct {
 }
 
 func TimeseriesPoints(data map[string]any, typ string) []Point
+func LatestPoint(points []Point) (Point, bool)
+func PointOn(points []Point, date string) (Point, bool)
+func FilterPeriodType(points []Point, periodType string) []Point
+func SumLast(points []Point, n int) (float64, bool)
 func (c *Client) TrailingPEG(ctx context.Context, ticker string) (v float64, ok bool, err error)
 ```
 
-`TimeseriesPoints` extrae de una respuesta de `FundamentalsTimeseries` las observaciones de un tipo, **la más reciente primero**, sin las que no traen fecha o valor (`nil` si el tipo no está). `TrailingPEG` devuelve el último `trailingPegRatio`, que Yahoo publica en fundamentals-timeseries y no en `quoteSummary`; `ok` es false si no hay dato.
+`TimeseriesPoints` extrae de una respuesta de `FundamentalsTimeseries` las observaciones de un tipo, **la más reciente primero**, sin las que no traen fecha o valor (`nil` si el tipo no está). Helpers sobre ese `[]Point`: `LatestPoint` (la más reciente), `PointOn` (la de una fecha, para alinear series por cierre), `FilterPeriodType` (`"3M"`, `"12M"`...) y `SumLast` (suma de las n más recientes; con trimestres y n = 4, el TTM; `ok` es false si hay menos de n). `TrailingPEG` devuelve el último `trailingPegRatio`, que Yahoo publica en fundamentals-timeseries y no en `quoteSummary`; `ok` es false si no hay dato.
 
 ```go
 data, _ := client.FundamentalsTimeseriesContext(ctx, "AAPL", []string{"quarterlyTotalRevenue"})
@@ -494,12 +498,14 @@ func WilliamsR(highs, lows, closes []float64, period int) []float64
 func ADX(highs, lows, closes []float64, period int) []float64
 func OBV(closes, volumes []float64) []float64
 func VWAP(highs, lows, closes, volumes []float64) []float64
+func MFI(highs, lows, closes, volumes []float64, period int) []float64 // Money Flow Index: RSI ponderado por volumen
 func Crossovers(fast, slow []float64) []int // +1 cruce hacia arriba, -1 hacia abajo, 0 sin cruce
 ```
 
 `ComputeIndicatorsBars` da exactamente el mismo `IndicatorSet` que `ComputeIndicators` para los mismos datos; usa los precios tal cual vienen (para precios ajustados, pasar `AutoAdjust(bars)`). Las funciones sueltas son los mismos cálculos con el período que se quiera: `SMA(closes, 20)` coincide con `IndicatorSet.SMA20`, `MACD(closes, 12, 26, 9)` con `MACD`/`MACDSignal`/`MACDHist`, etc.
 
 - El resultado está alineado por índice con la entrada; los puntos sin historia suficiente son `math.NaN()`.
+- `MFI` (14 es el estándar) usa el precio típico (H+L+C)/3 por el volumen; vale 100 sin flujo negativo (NaN si tampoco hay positivo). No forma parte de `IndicatorSet`.
 - Un período < 1 devuelve todo NaN; si las columnas no tienen el mismo largo, el resultado es `nil`.
 - Un NaN en la entrada se propaga: en las medias móviles, a cada ventana que lo contiene; en las que acumulan (EMA, RSI, ATR, ADX, MACD, OBV, VWAP), a todos los puntos siguientes.
 
