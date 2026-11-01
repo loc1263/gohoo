@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 No exported signature changed.
 
+### Added
+- `NewIntervalLimiter(gap)`: a ready-made `Limiter` (at most one request per `gap`, safe for concurrent use, honors `ctx`) to pass to `WithLimiter`.
+- `(*Client).DailyBars(ctx, ticker, start, end)`: daily bars adjusted for splits and dividends with the time moved to midnight; `errors.Is(err, ErrNotFound)` when Yahoo returns no bars.
+
 ### Changed
 - `QuoteSummary`, `QuoteSummaryContext` and `Info`: a Yahoo error in the response body (HTTP 200) with code "Not Found", or a description such as "Quote not found" or "No data found", now also satisfies `errors.Is(err, ErrNotFound)`; "Too Many Requests" satisfies `errors.Is(err, ErrRateLimit)`. The error text is unchanged. Before, these errors had no sentinel and callers had to match the message.
 

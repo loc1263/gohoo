@@ -17,6 +17,7 @@ import "github.com/loc1263/gohoo"
   - [NewClientWithOptions](#newclientwithoptions)
   - [Variantes con context](#variantes-con-context)
   - [ChartRange](#chartrange)
+  - [DailyBars](#dailybars)
   - [ChartResult.Monthly](#chartresultmonthly)
   - [GetJSON y PostJSON](#getjson-y-postjson)
   - [Screen y ScreenPredefined](#screen-y-screenpredefined)
@@ -211,6 +212,14 @@ res, err := client.ChartRange(ctx, "SPY", gohoo.ChartParams{
 })
 ```
 
+### DailyBars
+
+```go
+func (c *Client) DailyBars(ctx context.Context, ticker string, start, end time.Time) ([]Bar, error)
+```
+
+Barras diarias de `start` (inclusive) a `end` (exclusivo), ajustadas por splits y dividendos (`AutoAdjusted`) y con la hora llevada a la medianoche del día en la zona del exchange (`AtMidnight`). Es `ChartRange` con `Interval: "1d"` más esos dos pasos. Si Yahoo no devuelve ninguna barra, el error cumple `errors.Is(err, ErrNotFound)`.
+
 ### ChartResult.Monthly
 
 ```go
@@ -353,6 +362,7 @@ type RequestEvent struct {
 Ganchos para aplicar una política de tráfico propia **dentro** del cliente, sobre cada request HTTP (incluidos los reintentos y el bootstrap de cookie+crumb):
 
 - `WithLimiter`: `Wait` se llama antes de cada request; sirve para espaciar las requests de todo un proceso (un mismo `Limiter` puede compartirse entre clientes). Si devuelve error, la llamada termina con ese error sin reintentar.
+  `NewIntervalLimiter(gap)` es un `Limiter` listo: deja pasar una request cada `gap` (seguro entre goroutines, respeta `ctx`); `WithLimiter(NewIntervalLimiter(40*time.Millisecond))` son unas 25 requests por segundo.
 - `WithRequestHook`: `fn` se llama después de cada request con su resultado, para métricas o logs (p. ej. contar los 429). Se llama desde la goroutine de la request: debe ser seguro para uso concurrente y rápido.
 
 ```go
