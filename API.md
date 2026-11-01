@@ -19,6 +19,7 @@ import "github.com/loc1263/gohoo"
   - [ChartRange](#chartrange)
   - [DailyBars](#dailybars)
   - [ChartResult.Monthly](#chartresultmonthly)
+  - [ParallelMap](#parallelmap)
   - [GetJSON y PostJSON](#getjson-y-postjson)
   - [Screen y ScreenPredefined](#screen-y-screenpredefined)
   - [Quotes](#quotes)
@@ -232,6 +233,25 @@ Usar la zona del exchange importa: la barra mensual de marzo de Tokio tiene time
 
 > **Windows:** si la máquina no tiene Go instalado, `time.LoadLocation` no encuentra la base de zonas y `Meta.Location` queda en UTC. La aplicación debe importar `_ "time/tzdata"`; `gohoo` no lo hace para no sumar ~450 KB a todos los binarios.
 
+### ParallelMap
+
+```go
+type MapResult[R any] struct {
+    Value R
+    Err   error
+}
+
+func ParallelMap[T, R any](ctx context.Context, items []T, workers int, fn func(ctx context.Context, item T) (R, error)) []MapResult[R]
+```
+
+Corre `fn` sobre cada elemento con hasta `workers` goroutines (menos de 1 se toma como 1) y devuelve los resultados en el orden de `items`. Para bajar muchos símbolos con un mismo `Client`; el ritmo de las requests lo fija `WithLimiter`, no `workers`. Si `ctx` termina, los elementos que no empezaron quedan con `Err = ctx.Err()` sin llamar a `fn`. No recupera panics de `fn`.
+
+```go
+res := gohoo.ParallelMap(ctx, tickers, 8, func(ctx context.Context, t string) (map[string]any, error) {
+    return client.Info(ctx, t)
+})
+```
+
 ### GetJSON y PostJSON
 
 ```go
@@ -323,6 +343,13 @@ type Quote struct {
     Raw                                     map[string]any
 }
 ```
+
+```go
+func SharesOutstanding(m map[string]any) float64
+func (q Quote) Shares() float64
+```
+
+`SharesOutstanding` lee las acciones en circulación de un mapa de `Quote.Raw` o de `Info`: `sharesOutstanding` y, si falta o no es positivo, `impliedSharesOutstanding` (que suma todas las clases de acciones). Devuelve 0 si Yahoo no informa ninguno; `Quote.Shares()` es lo mismo sobre `Raw`. Yahoo no manda el dato para muchos ETF, índices y monedas.
 
 Cotización actual de muchos símbolos con pocas requests: llama a `/v7/finance/quote` en lotes de `QuoteBatchSize` (ver [ENDPOINTS.md](ENDPOINTS.md)). Sirve para acciones, ETFs, índices (`^VIX`), monedas (`CLP=X`) y cripto (`BTC-USD`).
 

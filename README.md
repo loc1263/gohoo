@@ -81,6 +81,8 @@ func main() {
 - `RetryPolicy` / `DefaultRetryPolicy()` — attempts, backoff, cap, jitter, whether to retry 429, `Retry-After`, `OnRetry` hook; `RetryPolicy.RateLimit` gives rate limits their own retry budget and backoff, and `WithRetryPolicyContext(ctx, p)` overrides the policy for a single call.
 - `(*Client) Quotes(ctx, symbols []string) ([]Quote, error)` — current quotes (price, change, market cap, currency, ...) for many symbols, in batches of 100 per request.
 - `(*Client) Info(ctx, ticker, opts...)` / `FlattenInfo(qs, opts...)` — a flat `Ticker.info`-style map from `quoteSummary` (module priority, unwrapped numbers; options for dividend yield in percent and `trailingPegRatio`).
+- `SharesOutstanding(m)` / `Quote.Shares()` — shares outstanding from a quote or info map.
+- `ParallelMap(ctx, items, workers, fn)` — bounded-concurrency map that keeps input order.
 - `TimeseriesPoints(data, type) []Point` and `(*Client) TrailingPEG` — typed fundamentals-timeseries observations, newest first.
 - `AutoAdjust(bars)` / `(*ChartResult) AutoAdjusted()`, `Bar.Date()` and `AtMidnight(bars)` — yfinance-style `auto_adjust` and date-indexed bars.
 - `WithLimiter(l)` / `WithRequestHook(fn)` — run your own rate limiter before, and a metrics/log hook after, every HTTP request (retries and session bootstrap included).

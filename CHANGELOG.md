@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-10-31
+
+Only additions: `apidiff` against v0.8.0 reports no incompatible change.
+
+### Added
+- `SharesOutstanding(m)` and `(Quote).Shares()`: shares outstanding from a `Quote.Raw` or `Info` map (`sharesOutstanding`, falling back to `impliedSharesOutstanding`); 0 if Yahoo reports neither.
+- `ParallelMap` and `MapResult`: runs a function over a slice with a bounded number of goroutines, results in input order; items not started when `ctx` ends get `ctx.Err()`.
+
 ## [0.8.0] - 2026-10-31
 
 Only additions: `apidiff` against v0.7.1 reports no incompatible change. The one behavior change is that more errors satisfy `errors.Is` (see Changed).

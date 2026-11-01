@@ -163,3 +163,53 @@ func TestQuotesErrorBodies(t *testing.T) {
 		})
 	}
 }
+
+func TestSharesOutstanding(t *testing.T) {
+	tests := []struct {
+		name string
+		m    map[string]any
+		want float64
+	}{
+		{"sharesOutstanding plano", map[string]any{"sharesOutstanding": 100.0, "impliedSharesOutstanding": 250.0}, 100},
+		{"solo implied", map[string]any{"impliedSharesOutstanding": 250.0}, 250},
+		{"implied si shares es cero", map[string]any{"sharesOutstanding": 0.0, "impliedSharesOutstanding": 250.0}, 250},
+		{"formato raw de quoteSummary", map[string]any{"sharesOutstanding": map[string]any{"raw": 42.0, "fmt": "42"}}, 42},
+		{"ninguno", map[string]any{"price": 1.0}, 0},
+		{"mapa nil", nil, 0},
+		{"negativo", map[string]any{"sharesOutstanding": -5.0}, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := SharesOutstanding(tc.m); got != tc.want {
+				t.Errorf("SharesOutstanding = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestQuoteSharesFromFixture(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(readFixture(t, "quote_mixed.json"))
+	}))
+	defer srv.Close()
+	qs, err := newTestClient(t, srv).Quotes(context.Background(), []string{"AAPL", "SQM-B.SN", "CLP=X"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range qs {
+		switch q.Symbol {
+		case "AAPL":
+			if q.Shares() != 14594180000 {
+				t.Errorf("AAPL Shares = %v", q.Shares())
+			}
+		case "SQM-B.SN":
+			if q.Shares() != 142818904 { // sharesOutstanding gana sobre implied
+				t.Errorf("SQM-B.SN Shares = %v", q.Shares())
+			}
+		case "CLP=X":
+			if q.Shares() != 0 {
+				t.Errorf("CLP=X Shares = %v, want 0", q.Shares())
+			}
+		}
+	}
+}

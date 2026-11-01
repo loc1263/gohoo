@@ -156,3 +156,21 @@ func newQuote(m map[string]any) Quote {
 	}
 	return q
 }
+
+// SharesOutstanding devuelve las acciones en circulación de m, un mapa de
+// Quote.Raw o el de Info: sharesOutstanding y, si no viene o no es positivo,
+// impliedSharesOutstanding (la cifra que suma todas las clases de acciones).
+// Acepta los valores planos de Quotes y los {"raw": ...} de quoteSummary.
+// Devuelve 0 si Yahoo no informa ninguno.
+func SharesOutstanding(m map[string]any) float64 {
+	for _, k := range []string{"sharesOutstanding", "impliedSharesOutstanding"} {
+		if v, ok := AsFloat(RawValue(m[k])); ok && v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// Shares es SharesOutstanding(q.Raw): las acciones en circulación de la
+// cotización, o 0 si Yahoo no las informa.
+func (q Quote) Shares() float64 { return SharesOutstanding(q.Raw) }
