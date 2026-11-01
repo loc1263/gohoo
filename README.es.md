@@ -73,6 +73,7 @@ Los errores se distinguen con `errors.Is`: `gohoo.ErrNotFound` (símbolo inexist
 
 ## Documentación
 
+- [EXAMPLES.md](EXAMPLES.md): ejemplos de uso de cada parte de la librería.
 - [API.md](API.md): referencia de todas las funciones y tipos.
 - [ENDPOINTS.md](ENDPOINTS.md): qué datos trae cada endpoint de Yahoo.
 - [TECHNICAL.md](TECHNICAL.md): cómo funciona (sesión, reintentos, límites de tasa, errores, indicadores), reglas de compatibilidad, tests y cómo publicar una versión.

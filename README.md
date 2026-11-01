@@ -75,6 +75,7 @@ Errors can be told apart with `errors.Is`: `gohoo.ErrNotFound` (unknown or delis
 
 Currently in Spanish.
 
+- [EXAMPLES.md](EXAMPLES.md): examples of how to use each part of the library.
 - [API.md](API.md): reference for every function and type.
 - [ENDPOINTS.md](ENDPOINTS.md): what data each Yahoo endpoint returns.
 - [TECHNICAL.md](TECHNICAL.md): how it works (session, retries, rate limits, errors, indicators), compatibility rules, tests and how to publish a release.

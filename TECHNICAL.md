@@ -1,6 +1,6 @@
 # gohoo: documento técnico
 
-Cómo funciona la librería por dentro, las reglas para cambiarla sin romper a quien la usa y cómo se prueba y se publica. Para usarla, ver el [README](README.es.md); para el detalle de cada función, [API.md](API.md); para los datos de cada endpoint de Yahoo, [ENDPOINTS.md](ENDPOINTS.md).
+Cómo funciona la librería por dentro, las reglas para cambiarla sin romper a quien la usa y cómo se prueba y se publica. Para usarla, ver el [README](README.es.md); para ejemplos de uso, [EXAMPLES.md](EXAMPLES.md); para el detalle de cada función, [API.md](API.md); para los datos de cada endpoint de Yahoo, [ENDPOINTS.md](ENDPOINTS.md).
 
 ## 1. Origen y alcance
 
