@@ -743,16 +743,16 @@ Todas las funciones del `Client` devuelven errores envueltos con contexto (`fmt.
 
 - **HTTP != 200**: el mensaje incluye el status code, la URL y los primeros 300 bytes del body.
 - **Crumb inválido** (`NewClient`): Yahoo cambió su mecanismo de auth o bloqueó la IP.
-- **Error de negocio de Yahoo** (`QuoteSummary`): `quoteSummary.error` no nulo, p. ej. ticker inexistente.
+- **Error de negocio de Yahoo** (`QuoteSummary`): `quoteSummary.error` no nulo, p. ej. ticker inexistente. Si el código es "Not Found" (o la descripción dice "Quote not found" / "No data found") cumple `errors.Is(err, ErrNotFound)`; "Too Many Requests", `errors.Is(err, ErrRateLimit)`.
 - **Respuesta vacía/inválida** (`ChartSeries`): ticker sin histórico para el rango pedido, o símbolo inexistente.
 
 ### Errores tipados
 
 ```go
 var (
-    ErrRateLimit    error // HTTP 429, o chart.error "Too Many Requests" (ChartRange)
+    ErrRateLimit    error // HTTP 429, o "Too Many Requests" en el cuerpo (ChartRange, QuoteSummary)
     ErrUnauthorized error // HTTP 401 que persistió tras renovar el crumb
-    ErrNotFound     error // HTTP 404, o chart.error "Not Found" (ChartRange)
+    ErrNotFound     error // HTTP 404, o "Not Found" en el cuerpo (ChartRange, QuoteSummary)
     ErrEmptyScreen  error // respuesta del screener sin bloque de resultados
 )
 

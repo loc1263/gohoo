@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+No exported signature changed.
+
+### Changed
+- `QuoteSummary`, `QuoteSummaryContext` and `Info`: a Yahoo error in the response body (HTTP 200) with code "Not Found", or a description such as "Quote not found" or "No data found", now also satisfies `errors.Is(err, ErrNotFound)`; "Too Many Requests" satisfies `errors.Is(err, ErrRateLimit)`. The error text is unchanged. Before, these errors had no sentinel and callers had to match the message.
+
 ## [0.7.1] - 2026-10-12
 
 No exported signature or behavior changed.

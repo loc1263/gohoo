@@ -275,7 +275,7 @@ func (c *Client) QuoteSummaryContext(ctx context.Context, ticker string, modules
 		return nil, fmt.Errorf("gohoo: no se pudo parsear quoteSummary de %s: %w", ticker, err)
 	}
 	if parsed.QuoteSummary.Error != nil {
-		return nil, fmt.Errorf("gohoo: quoteSummary de %s devolvió error: %v", ticker, parsed.QuoteSummary.Error)
+		return nil, quoteSummaryAPIError(ticker, parsed.QuoteSummary.Error)
 	}
 	if len(parsed.QuoteSummary.Result) == 0 {
 		return map[string]any{}, nil
@@ -341,4 +341,33 @@ func (c *Client) ChartContext(ctx context.Context, ticker, rang, interval string
 		return nil, fmt.Errorf("gohoo: no se pudo parsear chart de %s: %w", ticker, err)
 	}
 	return parsed, nil
+}
+
+// classifiedError es un error con texto propio que además cumple errors.Is
+// con un sentinela, sin cambiar el mensaje.
+type classifiedError struct {
+	msg      string
+	sentinel error
+}
+
+func (e *classifiedError) Error() string { return e.msg }
+func (e *classifiedError) Unwrap() error { return e.sentinel }
+
+// quoteSummaryAPIError convierte el {"quoteSummary":{"error":...}} de Yahoo en
+// un error. El texto es siempre el mismo; si el código es "Not Found" o la
+// descripción dice que no hay datos, además cumple errors.Is(err, ErrNotFound),
+// y "too many requests" cumple errors.Is(err, ErrRateLimit).
+func quoteSummaryAPIError(ticker string, apiErr any) error {
+	msg := fmt.Sprintf("gohoo: quoteSummary de %s devolvió error: %v", ticker, apiErr)
+	m, _ := apiErr.(map[string]any)
+	code, _ := m["code"].(string)
+	desc, _ := m["description"].(string)
+	lower := strings.ToLower(code + " " + desc)
+	switch {
+	case strings.Contains(lower, "too many"):
+		return &classifiedError{msg, ErrRateLimit}
+	case strings.EqualFold(code, "Not Found") || strings.Contains(lower, "quote not found") || strings.Contains(lower, "no data found"):
+		return &classifiedError{msg, ErrNotFound}
+	}
+	return errors.New(msg)
 }

@@ -367,3 +367,48 @@ func TestFundamentalsAndChartInvalidJSON(t *testing.T) {
 		t.Errorf("Chart: err = %v, want error de parseo", err)
 	}
 }
+
+func TestQuoteSummaryAPIErrorClassification(t *testing.T) {
+	tests := []struct {
+		name         string
+		apiErr       any
+		notFound     bool
+		rateLimited  bool
+		wantContains string
+	}{
+		{"not found code", map[string]any{"code": "Not Found", "description": "Quote not found for ticker symbol: FAKE"}, true, false, "Quote not found"},
+		{"no data description", map[string]any{"code": "Bad Request", "description": "No data found, symbol may be delisted"}, true, false, "No data found"},
+		{"too many requests", map[string]any{"code": "Too Many Requests", "description": "Rate limited"}, false, true, "Too Many Requests"},
+		{"other error", map[string]any{"code": "Bad Request", "description": "Invalid module"}, false, false, "Invalid module"},
+		{"unexpected shape", "boom", false, false, "boom"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := quoteSummaryAPIError("FAKE", tc.apiErr)
+			if got := errors.Is(err, ErrNotFound); got != tc.notFound {
+				t.Errorf("errors.Is(ErrNotFound) = %v, want %v", got, tc.notFound)
+			}
+			if got := errors.Is(err, ErrRateLimit); got != tc.rateLimited {
+				t.Errorf("errors.Is(ErrRateLimit) = %v, want %v", got, tc.rateLimited)
+			}
+			if !strings.HasPrefix(err.Error(), "gohoo: quoteSummary de FAKE devolvió error: ") || !strings.Contains(err.Error(), tc.wantContains) {
+				t.Errorf("error text = %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestQuoteSummaryNotFoundIsClassifiable(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v10/finance/quoteSummary/FAKE", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"quoteSummary": {"result": null, "error": {"code": "Not Found", "description": "Quote not found for ticker symbol: FAKE"}}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	if _, err := client.QuoteSummary("FAKE", []string{"price"}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want errors.Is(ErrNotFound)", err)
+	}
+}
