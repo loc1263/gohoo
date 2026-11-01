@@ -4,9 +4,9 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.10.0] - 2026-10-31
 
-Only additions.
+Only additions: `apidiff` against v0.9.0 reports no incompatible change.
 
 ### Added
 - `MFISkipNaN(highs, lows, closes, volumes, period)`: like `MFI`, but bars with a missing High, Low, Close or Volume (or whose previous bar has no typical price) add no flow instead of turning the whole window into NaN. Same result as `MFI` when there are no gaps.
